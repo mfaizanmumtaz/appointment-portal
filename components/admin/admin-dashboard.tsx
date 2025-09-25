@@ -1,0 +1,374 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts"
+import { Calendar, DollarSign, Users, MessageSquare, TrendingUp } from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+
+
+export function AdminDashboard() {
+  const [stats, setStats] = useState({
+    totalRevenue: 0,
+    totalBookings: 0,
+    weeklyAppointments: 0,
+    upcomingMeetings: 0,
+    todaySlots: 0,
+    monthSlots: 0,
+    paidAppointments: 0,
+    freeAppointments: 0,
+    businessTotal: 0,
+    studentTotal: 0,
+    inPersonTotal: 0,
+  })
+  const [weeklyData, setWeeklyData] = useState<Array<{ day: string; paid: number; free: number }>>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchDashboardData()
+
+    // Refresh data every 30 seconds to keep it current
+    const interval = setInterval(() => {
+      fetchDashboardData()
+    }, 30000)
+
+    return () => clearInterval(interval)
+  }, [])
+
+  const fetchDashboardData = async () => {
+    setLoading(true)
+    try {
+      const { supabase } = await import("@/lib/supabase")
+
+      const today = new Date()
+      const todayStr = today.toISOString().split('T')[0]
+      const weekStart = new Date(today)
+      weekStart.setDate(today.getDate() - today.getDay())
+      const weekEnd = new Date(weekStart)
+      weekEnd.setDate(weekStart.getDate() + 6)
+      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
+      const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0)
+
+      // Get ALL appointments from database
+      const { data: allAppointments, error: allError } = await supabase
+        .from('appointments')
+        .select('*')
+
+      if (allError) {
+        console.error('Error fetching all appointments:', allError)
+        return
+      }
+
+      // Get this week's appointments
+      const { data: weekAppointments, error: weekError } = await supabase
+        .from('appointments')
+        .select('*')
+        .gte('date', weekStart.toISOString().split('T')[0])
+        .lte('date', weekEnd.toISOString().split('T')[0])
+
+      if (weekError) {
+        console.error('Error fetching week appointments:', weekError)
+        return
+      }
+
+      // Get upcoming appointments (from today onwards)
+      const { data: upcomingAppointments, error: upcomingError } = await supabase
+        .from('appointments')
+        .select('*')
+        .gte('date', todayStr)
+
+      if (upcomingError) {
+        console.error('Error fetching upcoming appointments:', upcomingError)
+        return
+      }
+
+      // Get available slots for today
+      const { data: todaySlots, error: todaySlotsError } = await supabase
+        .from('time_slots')
+        .select('*')
+        .eq('date', todayStr)
+        .eq('is_available', true)
+
+      if (todaySlotsError) {
+        console.error('Error fetching today slots:', todaySlotsError)
+      }
+
+      // Get available slots for this month
+      const { data: monthSlots, error: monthSlotsError } = await supabase
+        .from('time_slots')
+        .select('*')
+        .gte('date', monthStart.toISOString().split('T')[0])
+        .lte('date', monthEnd.toISOString().split('T')[0])
+        .eq('is_available', true)
+
+      if (monthSlotsError) {
+        console.error('Error fetching month slots:', monthSlotsError)
+      }
+
+      const allPaidAppts = allAppointments?.filter(a => a.session_type === 'paid') || []
+      const allFreeAppts = allAppointments?.filter(a => a.session_type === 'free') || []
+      const totalRevenue = allPaidAppts.length * 150
+
+      const allBusinessAppts = allAppointments?.filter(a => a.type === 'business') || []
+      const allStudentAppts = allAppointments?.filter(a => a.type === 'student') || []
+      const allInPersonAppts = allAppointments?.filter(a => a.type === 'in-person') || []
+
+      const weekPaidAppts = weekAppointments?.filter(a => a.session_type === 'paid') || []
+      const weekFreeAppts = weekAppointments?.filter(a => a.session_type === 'free') || []
+
+      setStats({
+        totalRevenue,
+        totalBookings: allAppointments?.length || 0,
+        weeklyAppointments: weekAppointments?.length || 0,
+        upcomingMeetings: upcomingAppointments?.length || 0,
+        todaySlots: todaySlots?.length || 0,
+        monthSlots: monthSlots?.length || 0,
+        paidAppointments: weekPaidAppts.length,
+        freeAppointments: weekFreeAppts.length,
+        businessTotal: allBusinessAppts.length,
+        studentTotal: allStudentAppts.length,
+        inPersonTotal: allInPersonAppts.length,
+      })
+
+      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+      const dailyData = days.map((day, index) => {
+        const dayDate = new Date(weekStart)
+        dayDate.setDate(weekStart.getDate() + index)
+        const dayStr = dayDate.toISOString().split('T')[0]
+
+        const dayAppts = weekAppointments?.filter(a => a.date === dayStr) || []
+        const paid = dayAppts.filter(a => a.session_type === 'paid').length
+        const free = dayAppts.filter(a => a.session_type === 'free').length
+
+        return { day, paid, free }
+      })
+
+      setWeeklyData(dailyData)
+    } catch (error) {
+      console.error('Error:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-muted-foreground">Loading dashboard data...</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h1 className="heading-font text-3xl font-bold text-foreground mb-2">Dashboard</h1>
+        <p className="text-muted-foreground text-lg">Overview of your appointments and business metrics</p>
+      </div>
+
+      {/* Key Metrics - Match the image layout */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Card className="card-modern">
+          <CardContent className="p-6 text-center">
+            <div className="space-y-2">
+              <p className="text-4xl font-bold text-foreground">{stats.weeklyAppointments}</p>
+              <p className="text-sm text-muted-foreground">Total bookings this week</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="card-modern">
+          <CardContent className="p-6 text-center">
+            <div className="space-y-2">
+              <p className="text-4xl font-bold text-foreground">{stats.upcomingMeetings}</p>
+              <p className="text-sm text-muted-foreground">Upcoming meetings</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="card-modern">
+          <CardContent className="p-6 text-center">
+            <div className="space-y-2">
+              <p className="text-4xl font-bold text-blue-600">{stats.todaySlots}</p>
+              <p className="text-sm text-muted-foreground">Slots available today</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="card-modern">
+          <CardContent className="p-6 text-center">
+            <div className="space-y-2">
+              <p className="text-4xl font-bold text-green-600">{stats.monthSlots}</p>
+              <p className="text-sm text-muted-foreground">Slots this month</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Slot Status Legend */}
+      <div className="flex justify-center">
+        <div className="flex items-center gap-6 p-4 bg-muted/30 rounded-xl">
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-blue-500 rounded"></div>
+            <span className="text-sm">Paid Available</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-green-500 rounded"></div>
+            <span className="text-sm">Free Available</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-gray-400 rounded"></div>
+            <span className="text-sm">Booked</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-orange-500 rounded"></div>
+            <span className="text-sm">Pending</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Enhanced dashboard with separate tabs for appointment types */}
+      <Tabs defaultValue="overview" className="space-y-6">
+        <TabsList className="grid w-full grid-cols-4 bg-muted rounded-xl">
+          <TabsTrigger value="overview" className="rounded-lg">
+            Overview
+          </TabsTrigger>
+          <TabsTrigger value="business" className="rounded-lg">
+            Business
+          </TabsTrigger>
+          <TabsTrigger value="student" className="rounded-lg">
+            Students
+          </TabsTrigger>
+          <TabsTrigger value="in-person" className="rounded-lg">
+            In-Person
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview" className="space-y-6">
+          <div className="grid lg:grid-cols-2 gap-6">
+            {/* Weekly Bookings Chart */}
+            <Card className="card-modern">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-foreground">
+                  <BarChart className="w-5 h-5" />
+                  Weekly Bookings
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={weeklyData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="day" />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="paid" fill="hsl(var(--primary))" name="Paid" />
+                    <Bar dataKey="free" fill="hsl(var(--secondary))" name="Free" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            {/* Session Types */}
+            <Card className="card-modern">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-foreground">
+                  <TrendingUp className="w-5 h-5" />
+                  Session Distribution
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">Business Sessions</span>
+                    <span className="font-semibold">{stats.businessTotal}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">Student Sessions</span>
+                    <span className="font-semibold">{stats.studentTotal}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">In-Person Sessions</span>
+                    <span className="font-semibold">{stats.inPersonTotal}</span>
+                  </div>
+                  <hr className="border-muted" />
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">Paid Sessions</span>
+                    <span className="font-semibold text-green-600">{stats.paidAppointments}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">Free Sessions</span>
+                    <span className="font-semibold text-blue-600">{stats.freeAppointments}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="business" className="space-y-6">
+          <div className="grid lg:grid-cols-3 gap-6">
+            <Card className="card-modern">
+              <CardHeader>
+                <CardTitle>Business Metrics</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Total Sessions:</span>
+                  <span className="font-semibold">{stats.businessTotal}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">This Week:</span>
+                  <span className="font-semibold">{stats.businessTotal}</span>
+                </div>
+              </CardContent>
+            </Card>
+
+          </div>
+        </TabsContent>
+
+        <TabsContent value="student" className="space-y-6">
+          <div className="grid lg:grid-cols-3 gap-6">
+            <Card className="card-modern">
+              <CardHeader>
+                <CardTitle>Student Metrics</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Total Sessions:</span>
+                  <span className="font-semibold">{stats.studentTotal}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">This Week:</span>
+                  <span className="font-semibold">{stats.studentTotal}</span>
+                </div>
+              </CardContent>
+            </Card>
+
+          </div>
+        </TabsContent>
+
+        <TabsContent value="in-person" className="space-y-6">
+          <div className="grid lg:grid-cols-3 gap-6">
+            <Card className="card-modern">
+              <CardHeader>
+                <CardTitle>In-Person Metrics</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Total Sessions:</span>
+                  <span className="font-semibold">{stats.inPersonTotal}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">This Week:</span>
+                  <span className="font-semibold">{stats.inPersonTotal}</span>
+                </div>
+              </CardContent>
+            </Card>
+
+          </div>
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
+}
