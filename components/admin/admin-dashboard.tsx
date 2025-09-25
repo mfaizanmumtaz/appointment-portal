@@ -4,7 +4,8 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts"
-import { Calendar, DollarSign, Users, MessageSquare, TrendingUp } from "lucide-react"
+import { Calendar, DollarSign, Users, MessageSquare, TrendingUp, RefreshCw } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 
@@ -24,6 +25,7 @@ export function AdminDashboard() {
   })
   const [weeklyData, setWeeklyData] = useState<Array<{ day: string; paid: number; free: number }>>([])
   const [loading, setLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
   useEffect(() => {
     fetchDashboardData()
@@ -35,6 +37,12 @@ export function AdminDashboard() {
 
     return () => clearInterval(interval)
   }, [])
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true)
+    await fetchDashboardData()
+    setIsRefreshing(false)
+  }
 
   const fetchDashboardData = async () => {
     setLoading(true)
@@ -155,16 +163,30 @@ export function AdminDashboard() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground">Loading dashboard data...</p>
+        <div className="text-center">
+          <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2 text-blue-500" />
+          <p className="text-slate-600">Loading dashboard data...</p>
+        </div>
       </div>
     )
   }
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="heading-font text-3xl font-bold text-foreground mb-2">Dashboard</h1>
-        <p className="text-muted-foreground text-lg">Overview of your appointments and business metrics</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="heading-font text-3xl font-bold text-foreground mb-2">Dashboard</h1>
+          <p className="text-muted-foreground text-lg">Overview of your appointments and business metrics</p>
+        </div>
+        <Button
+          onClick={handleManualRefresh}
+          variant="outline"
+          size="sm"
+          disabled={isRefreshing}
+        >
+          <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
       </div>
 
       {/* Key Metrics - Match the image layout */}

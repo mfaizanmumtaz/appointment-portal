@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Calendar, Clock, User, DollarSign, Video, MapPin } from "lucide-react"
+import { Calendar, Clock, User, DollarSign, Video, MapPin, RefreshCw } from "lucide-react"
 
 
 interface Appointment {
@@ -26,10 +26,24 @@ export function AdminCalendar() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [loading, setLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
   useEffect(() => {
     fetchAppointments()
+    
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(() => {
+      fetchAppointments()
+    }, 30000)
+
+    return () => clearInterval(interval)
   }, [])
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true)
+    await fetchAppointments()
+    setIsRefreshing(false)
+  }
 
   const fetchAppointments = async () => {
     setLoading(true)
@@ -89,16 +103,30 @@ export function AdminCalendar() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground">Loading appointments...</p>
+        <div className="text-center">
+          <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2 text-blue-500" />
+          <p className="text-slate-600">Loading appointments...</p>
+        </div>
       </div>
     )
   }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="heading-font text-3xl font-bold text-foreground mb-2">Calendar</h1>
-        <p className="text-muted-foreground">Manage your appointments and schedule</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="heading-font text-3xl font-bold text-foreground mb-2">Calendar</h1>
+          <p className="text-muted-foreground">Manage your appointments and schedule</p>
+        </div>
+        <Button
+          onClick={handleManualRefresh}
+          variant="outline"
+          size="sm"
+          disabled={isRefreshing}
+        >
+          <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
       </div>
 
       <Tabs defaultValue="paid" className="space-y-6">

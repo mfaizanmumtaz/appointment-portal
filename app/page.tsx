@@ -11,10 +11,12 @@ import { Textarea } from "@/components/ui/textarea"
 import { MessageSquare, Users, Briefcase, Play, ArrowRight, Send, X } from "lucide-react"
 import Link from "next/link"
 import { FloatingChatWidget } from "@/components/chat/floating-chat-widget"
+import { createInstantMessage } from "@/lib/message-utils"
 
 export default function HomePage() {
   const [showQuickMessage, setShowQuickMessage] = useState(false)
   const [showSuccessPopup, setShowSuccessPopup] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [messageForm, setMessageForm] = useState({
     name: "",
     email: "",
@@ -22,12 +24,38 @@ export default function HomePage() {
     message: "",
   })
 
-  const handleQuickMessageSubmit = (e: React.FormEvent) => {
+  const handleQuickMessageSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setShowQuickMessage(false)
-    setShowSuccessPopup(true)
-    // Reset form
-    setMessageForm({ name: "", email: "", phone: "", message: "" })
+    
+    if (!messageForm.name || !messageForm.email || !messageForm.message) {
+      alert("Please fill in all required fields")
+      return
+    }
+
+    setIsSubmitting(true)
+
+    try {
+      const result = await createInstantMessage({
+        name: messageForm.name,
+        email: messageForm.email,
+        phone: messageForm.phone,
+        message: messageForm.message,
+      })
+
+      if (result.success) {
+        setShowQuickMessage(false)
+        setShowSuccessPopup(true)
+        // Reset form
+        setMessageForm({ name: "", email: "", phone: "", message: "" })
+      } else {
+        alert("Failed to send message. Please try again.")
+      }
+    } catch (error) {
+      console.error("Error submitting message:", error)
+      alert("Failed to send message. Please try again.")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -244,34 +272,38 @@ export default function HomePage() {
               <form onSubmit={handleQuickMessageSubmit} className="space-y-4">
                 <div>
                   <Label htmlFor="name" className="text-slate-700 font-medium">
-                    Name
+                    Name *
                   </Label>
                   <Input
                     id="name"
+                    required
                     value={messageForm.name}
                     onChange={(e) => setMessageForm({ ...messageForm, name: e.target.value })}
                     className="mt-1"
                     placeholder="Your full name"
+                    disabled={isSubmitting}
                   />
                 </div>
 
                 <div>
                   <Label htmlFor="email" className="text-slate-700 font-medium">
-                    Email
+                    Email *
                   </Label>
                   <Input
                     id="email"
                     type="email"
+                    required
                     value={messageForm.email}
                     onChange={(e) => setMessageForm({ ...messageForm, email: e.target.value })}
                     className="mt-1"
                     placeholder="your.email@example.com"
+                    disabled={isSubmitting}
                   />
                 </div>
 
                 <div>
                   <Label htmlFor="phone" className="text-slate-700 font-medium">
-                    Phone
+                    Phone (Optional)
                   </Label>
                   <Input
                     id="phone"
@@ -279,29 +311,42 @@ export default function HomePage() {
                     onChange={(e) => setMessageForm({ ...messageForm, phone: e.target.value })}
                     className="mt-1"
                     placeholder="+1 (555) 123-4567"
+                    disabled={isSubmitting}
                   />
                 </div>
 
                 <div>
                   <Label htmlFor="message" className="text-slate-700 font-medium">
-                    Message
+                    Message *
                   </Label>
                   <Textarea
                     id="message"
                     rows={4}
+                    required
                     value={messageForm.message}
                     onChange={(e) => setMessageForm({ ...messageForm, message: e.target.value })}
                     className="mt-1"
                     placeholder="Your message..."
+                    disabled={isSubmitting}
                   />
                 </div>
 
                 <div className="flex gap-3 pt-2">
-                  <Button type="button" variant="outline" onClick={() => setShowQuickMessage(false)} className="flex-1">
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={() => setShowQuickMessage(false)} 
+                    className="flex-1"
+                    disabled={isSubmitting}
+                  >
                     Cancel
                   </Button>
-                  <Button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-700 text-white">
-                    Send Message
+                  <Button 
+                    type="submit" 
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? "Sending..." : "Send Message"}
                   </Button>
                 </div>
               </form>

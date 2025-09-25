@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Textarea } from "@/components/ui/textarea"
-import { Calendar, Clock, DollarSign, Users, Plus, Edit, Trash2, CalendarDays, Eye, AlertTriangle } from "lucide-react"
+import { Calendar, Clock, DollarSign, Users, Plus, Edit, Trash2, CalendarDays, Eye, AlertTriangle, RefreshCw } from "lucide-react"
 
 interface TimeSlot {
   id: string
@@ -110,6 +110,21 @@ export function AdminSlots() {
     try {
       const { supabase } = await import("@/lib/supabase")
 
+      // Check if slot already exists
+      const { data: existingSlot } = await supabase
+        .from('time_slots')
+        .select('id')
+        .eq('date', newSlot.date)
+        .eq('time', newSlot.time)
+        .eq('slot_type', newSlot.slot_type)
+        .single()
+
+      if (existingSlot) {
+        alert(`A ${newSlot.slot_type} slot already exists for ${newSlot.date} at ${newSlot.time}!`)
+        return
+      }
+
+      // Create new slot
       const { data, error } = await supabase
         .from('time_slots')
         .insert({
@@ -123,11 +138,16 @@ export function AdminSlots() {
 
       if (error) {
         console.error('Error creating slot:', error)
-        alert(`Error: ${error.message}`)
+        if (error.message.includes('duplicate key value')) {
+          alert('A slot with this date, time, and type already exists!')
+        } else {
+          alert(`Error: ${error.message}`)
+        }
         return
       }
 
-      setSlots([...slots, data])
+      // Refresh slots to get current state
+      await fetchSlots()
       setNewSlot({
         date: new Date().toISOString().split('T')[0],
         time: "09:00",
@@ -299,13 +319,32 @@ export function AdminSlots() {
         .or(slotQueries)
         .in('status', ['confirmed', 'pending'])
 
+      // Check for existing time slots that would conflict
+      const slotCheckQueries = previewSlots.map(slot =>
+        `(date = '${slot.date}' AND time = '${slot.time}' AND slot_type = '${slot.slot_type}')`
+      ).join(' OR ')
+
+      const { data: existingSlots } = await supabase
+        .from('time_slots')
+        .select('date, time, slot_type')
+        .or(slotCheckQueries)
+
       // Filter out slots that have confirmed/pending appointments
-      const conflictingSlots = new Set(
+      const appointmentConflicts = new Set(
         existingAppointments?.map(apt => `${apt.date}-${apt.time}`) || []
       )
 
+      // Filter out slots that already exist
+      const slotConflicts = new Set(
+        existingSlots?.map(slot => `${slot.date}-${slot.time}-${slot.slot_type}`) || []
+      )
+
       const slotsToInsert = previewSlots
-        .filter(slot => !conflictingSlots.has(`${slot.date}-${slot.time}`))
+        .filter(slot => {
+          const appointmentKey = `${slot.date}-${slot.time}`
+          const slotKey = `${slot.date}-${slot.time}-${slot.slot_type}`
+          return !appointmentConflicts.has(appointmentKey) && !slotConflicts.has(slotKey)
+        })
         .map(slot => ({
           date: slot.date,
           time: slot.time,
@@ -314,17 +353,28 @@ export function AdminSlots() {
         }))
 
       if (slotsToInsert.length === 0) {
-        alert('No slots to create - all selected times have existing appointments!')
+        const appointmentCount = previewSlots.filter(slot => 
+          appointmentConflicts.has(`${slot.date}-${slot.time}`)
+        ).length
+        const duplicateCount = previewSlots.filter(slot => 
+          slotConflicts.has(`${slot.date}-${slot.time}-${slot.slot_type}`)
+        ).length
+
+        let message = 'No new slots to create!'
+        if (appointmentCount > 0) {
+          message += ` ${appointmentCount} slots skipped due to existing appointments.`
+        }
+        if (duplicateCount > 0) {
+          message += ` ${duplicateCount} slots already exist.`
+        }
+        alert(message)
         return
       }
 
-      // Use upsert to handle duplicates gracefully
+      // Insert new slots (no duplicates since we pre-filtered)
       const { data, error } = await supabase
         .from('time_slots')
-        .upsert(slotsToInsert, {
-          onConflict: 'date,time,slot_type',
-          ignoreDuplicates: false
-        })
+        .insert(slotsToInsert)
         .select()
 
       if (error) {
@@ -333,11 +383,20 @@ export function AdminSlots() {
         return
       }
 
-      const conflictedCount = previewSlots.length - slotsToInsert.length
-      let message = `Successfully created ${data?.length || slotsToInsert.length} slots!`
+      const appointmentConflictCount = previewSlots.filter(slot => 
+        appointmentConflicts.has(`${slot.date}-${slot.time}`)
+      ).length
+      const duplicateConflictCount = previewSlots.filter(slot => 
+        slotConflicts.has(`${slot.date}-${slot.time}-${slot.slot_type}`)
+      ).length
 
-      if (conflictedCount > 0) {
-        message += ` (Skipped ${conflictedCount} slots due to existing appointments)`
+      let message = `Successfully created ${data?.length || 0} slots!`
+
+      if (appointmentConflictCount > 0) {
+        message += ` (Skipped ${appointmentConflictCount} slots due to existing appointments)`
+      }
+      if (duplicateConflictCount > 0) {
+        message += ` (Skipped ${duplicateConflictCount} duplicate slots)`
       }
 
       setSlots([...slots, ...(data || [])])
@@ -441,7 +500,10 @@ export function AdminSlots() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground">Loading slots...</p>
+        <div className="text-center">
+          <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2 text-blue-500" />
+          <p className="text-slate-600">Loading slots...</p>
+        </div>
       </div>
     )
   }
@@ -465,6 +527,10 @@ export function AdminSlots() {
               </Button>
             </>
           )}
+          <Button onClick={fetchSlots} variant="outline" size="sm">
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </Button>
           <Button onClick={() => setIsBulkCreating(true)} className="btn-primary">
             <CalendarDays className="w-4 h-4 mr-2" />
             Bulk Create

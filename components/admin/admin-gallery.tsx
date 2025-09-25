@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Upload, Trash2, Edit3, Eye, ImageIcon, Plus, X, Check, Move } from "lucide-react"
+import { Upload, Trash2, Edit3, Eye, ImageIcon, Plus, X, Check, Move, RefreshCw } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
 
 interface GalleryImage {
@@ -150,7 +150,10 @@ export function AdminGallery() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground">Loading gallery...</p>
+        <div className="text-center">
+          <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2 text-blue-500" />
+          <p className="text-slate-600">Loading gallery...</p>
+        </div>
       </div>
     )
   }

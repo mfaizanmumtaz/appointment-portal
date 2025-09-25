@@ -23,7 +23,8 @@ import {
   Building,
   CheckCircle,
   XCircle,
-  AlertCircle
+  AlertCircle,
+  RefreshCw
 } from "lucide-react"
 import type { Appointment, MeetingType } from "@/lib/types/database"
 
@@ -32,6 +33,7 @@ export function AdminMeetings() {
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null)
   const [editingMeeting, setEditingMeeting] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [filter, setFilter] = useState<'all' | 'confirmed' | 'pending' | 'completed'>('all')
 
   // Form state for editing meeting details
@@ -52,6 +54,12 @@ export function AdminMeetings() {
 
     return () => clearInterval(interval)
   }, [])
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true)
+    await fetchAppointments()
+    setIsRefreshing(false)
+  }
 
   const fetchAppointments = async () => {
     setLoading(true)
@@ -177,7 +185,10 @@ export function AdminMeetings() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground">Loading meetings...</p>
+        <div className="text-center">
+          <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2 text-blue-500" />
+          <p className="text-slate-600">Loading meetings...</p>
+        </div>
       </div>
     )
   }
@@ -189,6 +200,15 @@ export function AdminMeetings() {
           <h1 className="heading-font text-3xl font-bold text-foreground mb-2">Meeting Management</h1>
           <p className="text-muted-foreground">Manage Zoom links, venues, and meeting details</p>
         </div>
+        <Button
+          onClick={handleManualRefresh}
+          variant="outline"
+          size="sm"
+          disabled={isRefreshing}
+        >
+          <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
       </div>
 
       {/* Quick Stats */}

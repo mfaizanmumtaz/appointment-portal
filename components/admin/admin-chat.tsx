@@ -1,321 +1,377 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { MessageSquare, Send, User, Phone, Video, MoreVertical, Smile, Paperclip } from "lucide-react"
-
-interface ChatMessage {
-  id: string
-  sender: "admin" | "user"
-  message: string
-  timestamp: string
-  userName?: string
-}
-
-interface ActiveChat {
-  id: string
-  userName: string
-  userEmail: string
-  status: "active" | "waiting"
-  lastMessage: string
-  timestamp: string
-  unreadCount: number
-}
-
-const mockChats: ActiveChat[] = [
-  {
-    id: "1",
-    userName: "Sarah Johnson",
-    userEmail: "sarah@example.com",
-    status: "active",
-    lastMessage: "I have a question about the business consultation",
-    timestamp: "2 min ago",
-    unreadCount: 2,
-  },
-  {
-    id: "2",
-    userName: "Mike Chen",
-    userEmail: "mike@student.edu",
-    status: "waiting",
-    lastMessage: "When can I schedule my session?",
-    timestamp: "5 min ago",
-    unreadCount: 1,
-  },
-]
-
-const mockMessages: ChatMessage[] = [
-  {
-    id: "1",
-    sender: "user",
-    message: "Hi, I have a question about the business consultation",
-    timestamp: "2:30 PM",
-    userName: "Sarah Johnson",
-  },
-  {
-    id: "2",
-    sender: "admin",
-    message: "Hello Sarah! I'd be happy to help. What would you like to know?",
-    timestamp: "2:31 PM",
-  },
-  {
-    id: "3",
-    sender: "user",
-    message: "What should I prepare for our session?",
-    timestamp: "2:32 PM",
-    userName: "Sarah Johnson",
-  },
-]
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Textarea } from "@/components/ui/textarea"
+import { MessageSquare, Send, User, Clock, Check, CheckCheck, RefreshCw, Mail, Phone } from "lucide-react"
+import { fetchInstantMessages, updateInstantMessage, markMessageAsRead, subscribeToMessages } from "@/lib/message-utils"
+import type { InstantMessage } from "@/lib/types/database"
 
 const quickReplies = [
-  "Thank you for your interest! I'll get back to you shortly.",
-  "Your session has been confirmed. You'll receive a calendar invite soon.",
+  "Thank you for your message! I'll get back to you shortly.",
+  "Your request has been received. I'll review it and respond within 24 hours.",
   "Please provide more details about your project so I can better assist you.",
-  "I'd be happy to help! Let me check my availability.",
-  "Your payment has been processed successfully.",
+  "Your session has been confirmed. You'll receive a calendar invite soon.",
+  "Thank you for your interest in our services.",
 ]
 
 export function AdminChat() {
-  const [activeChats] = useState<ActiveChat[]>(mockChats)
-  const [selectedChat, setSelectedChat] = useState<string | null>("1")
-  const [messages, setMessages] = useState<ChatMessage[]>(mockMessages)
-  const [newMessage, setNewMessage] = useState("")
+  const [messages, setMessages] = useState<InstantMessage[]>([])
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
+  const [replyText, setReplyText] = useState("")
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
-  const handleSendMessage = () => {
-    if (newMessage.trim() && selectedChat) {
-      const message: ChatMessage = {
-        id: Date.now().toString(),
-        sender: "admin",
-        message: newMessage,
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+  const selectedMessage = messages.find(msg => msg.id === selectedMessageId)
+
+  // Load messages on component mount
+  useEffect(() => {
+    loadMessages()
+  }, [])
+
+  // Set up real-time subscription
+  useEffect(() => {
+    const subscription = subscribeToMessages((payload) => {
+      console.log('Real-time message update:', payload)
+      loadMessages() // Reload all messages when there's an update
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [])
+
+  const loadMessages = async () => {
+    setIsLoading(true)
+    try {
+      const result = await fetchInstantMessages()
+      if (result.success) {
+        setMessages(result.data)
+        // Auto-select first message if none selected
+        if (!selectedMessageId && result.data.length > 0) {
+          setSelectedMessageId(result.data[0].id)
+        }
       }
-      setMessages([...messages, message])
-      setNewMessage("")
+    } catch (error) {
+      console.error("Error loading messages:", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true)
+    await loadMessages()
+    setIsRefreshing(false)
+  }
+
+  const handleMessageSelect = async (messageId: string) => {
+    setSelectedMessageId(messageId)
+    const message = messages.find(msg => msg.id === messageId)
+    if (message && message.status === 'unread') {
+      // Mark as read
+      await markMessageAsRead(messageId)
+      // Update local state
+      setMessages(prev => prev.map(msg => 
+        msg.id === messageId ? { ...msg, status: 'read' } : msg
+      ))
+    }
+  }
+
+  const handleSendReply = async () => {
+    if (!replyText.trim() || !selectedMessageId) return
+
+    setIsSubmitting(true)
+    try {
+      const result = await updateInstantMessage(selectedMessageId, {
+        admin_reply: replyText,
+        status: 'replied'
+      })
+
+      if (result.success) {
+        // Update local state
+        setMessages(prev => prev.map(msg => 
+          msg.id === selectedMessageId 
+            ? { ...msg, admin_reply: replyText, status: 'replied', replied_at: new Date().toISOString() }
+            : msg
+        ))
+        setReplyText("")
+      } else {
+        alert("Failed to send reply. Please try again.")
+      }
+    } catch (error) {
+      console.error("Error sending reply:", error)
+      alert("Failed to send reply. Please try again.")
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
   const handleQuickReply = (reply: string) => {
-    setNewMessage(reply)
+    setReplyText(reply)
   }
 
-  const selectedChatData = activeChats.find((chat) => chat.id === selectedChat)
+  const formatTimestamp = (timestamp: string) => {
+    const date = new Date(timestamp)
+    const now = new Date()
+    const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60)
+    
+    if (diffInHours < 1) {
+      const diffInMinutes = Math.floor(diffInHours * 60)
+      return `${diffInMinutes} min ago`
+    } else if (diffInHours < 24) {
+      return `${Math.floor(diffInHours)}h ago`
+    } else {
+      return date.toLocaleDateString()
+    }
+  }
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'unread':
+        return <Clock className="w-3 h-3 text-orange-500" />
+      case 'read':
+        return <Check className="w-3 h-3 text-blue-500" />
+      case 'replied':
+        return <CheckCheck className="w-3 h-3 text-green-500" />
+      default:
+        return null
+    }
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'unread':
+        return 'bg-orange-100 text-orange-800 border-orange-200'
+      case 'read':
+        return 'bg-blue-100 text-blue-800 border-blue-200'
+      case 'replied':
+        return 'bg-green-100 text-green-800 border-green-200'
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-200'
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2 text-blue-500" />
+          <p className="text-slate-600">Loading messages...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="heading-font text-3xl font-bold text-foreground mb-2">Quick Chat</h1>
-        <p className="text-muted-foreground">Real-time communication with people booking appointments</p>
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <MessageSquare className="w-6 h-6 text-blue-600" />
+          <div>
+            <h2 className="text-xl font-semibold text-slate-900">Quick Chat</h2>
+            <p className="text-sm text-slate-600">Manage instant messages from visitors</p>
+          </div>
+        </div>
+        <Button
+          onClick={handleRefresh}
+          variant="outline"
+          size="sm"
+          disabled={isRefreshing}
+        >
+          <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
       </div>
 
-      <div className="flex h-[700px] bg-background rounded-lg border border-border overflow-hidden shadow-sm">
-        {/* Chat List Sidebar - WhatsApp style */}
-        <div className="w-80 bg-muted/20 border-r border-border flex flex-col">
-          {/* Sidebar Header */}
-          <div className="p-4 bg-background border-b border-border">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-lg">Chats</h2>
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="ghost" className="w-8 h-8 p-0">
-                  <MessageSquare className="w-4 h-4" />
-                </Button>
-                <Button size="sm" variant="ghost" className="w-8 h-8 p-0">
-                  <MoreVertical className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          {/* Chat List */}
-          <ScrollArea className="flex-1">
-            <div className="divide-y divide-border/30">
-              {activeChats.map((chat) => (
-                <div
-                  key={chat.id}
-                  className={`p-3 cursor-pointer transition-all duration-200 hover:bg-muted/40 ${
-                    selectedChat === chat.id ? "bg-primary/10 border-r-2 border-r-primary" : ""
-                  }`}
-                  onClick={() => setSelectedChat(chat.id)}
-                >
-                  <div className="flex items-center gap-3">
-                    {/* Contact Avatar */}
-                    <div className="relative">
-                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary/30 to-primary/60 flex items-center justify-center flex-shrink-0">
-                        <User className="w-6 h-6 text-white" />
-                      </div>
-                      {chat.status === "active" && (
-                        <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-background"></div>
-                      )}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <h3 className="font-medium text-sm truncate text-foreground">{chat.userName}</h3>
-                        <span className="text-xs text-muted-foreground flex-shrink-0">{chat.timestamp}</span>
-                      </div>
-                      <p className="text-sm text-muted-foreground truncate leading-tight">{chat.lastMessage}</p>
-                      <div className="flex items-center justify-between mt-1">
-                        <Badge
-                          variant={chat.status === "active" ? "default" : "secondary"}
-                          className="text-xs h-4 px-2"
-                        >
-                          {chat.status}
-                        </Badge>
-                        {chat.unreadCount > 0 && (
-                          <div className="w-5 h-5 bg-primary rounded-full flex items-center justify-center">
-                            <span className="text-xs text-primary-foreground font-medium">{chat.unreadCount}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[600px]">
+        {/* Messages List */}
+        <Card className="lg:col-span-1">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center justify-between">
+              <span>Messages</span>
+              <Badge variant="secondary">{messages.length}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <ScrollArea className="h-[500px]">
+              {messages.length === 0 ? (
+                <div className="p-6 text-center text-slate-500">
+                  <MessageSquare className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                  <p>No messages yet</p>
                 </div>
-              ))}
-            </div>
-          </ScrollArea>
-        </div>
-
-        {/* Main Chat Area */}
-        <div className="flex-1 flex flex-col">
-          {selectedChat ? (
-            <>
-              {/* Chat Header */}
-              <div className="p-4 bg-background border-b border-border">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/30 to-primary/60 flex items-center justify-center">
-                    <User className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-foreground">{selectedChatData?.userName}</h3>
-                    <p className="text-sm text-muted-foreground">{selectedChatData?.userEmail}</p>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button size="sm" variant="ghost" className="w-9 h-9 p-0 hover:bg-muted">
-                      <Phone className="w-4 h-4" />
-                    </Button>
-                    <Button size="sm" variant="ghost" className="w-9 h-9 p-0 hover:bg-muted">
-                      <Video className="w-4 h-4" />
-                    </Button>
-                    <Button size="sm" variant="ghost" className="w-9 h-9 p-0 hover:bg-muted">
-                      <MoreVertical className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Messages Area */}
-              <div className="flex-1 bg-gradient-to-b from-muted/10 to-muted/5 relative overflow-hidden">
-                <ScrollArea className="h-full p-4">
-                  <div className="space-y-4">
-                    {messages.map((message) => (
-                      <div
-                        key={message.id}
-                        className={`flex ${message.sender === "admin" ? "justify-end" : "justify-start"}`}
-                      >
-                        <div className="flex items-end gap-2 max-w-[70%]">
-                          {message.sender === "user" && (
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-muted/60 to-muted/80 flex items-center justify-center flex-shrink-0">
-                              <User className="w-4 h-4 text-muted-foreground" />
-                            </div>
-                          )}
-                          <div
-                            className={`relative px-4 py-2 rounded-2xl shadow-sm max-w-full ${
-                              message.sender === "admin"
-                                ? "bg-primary text-primary-foreground rounded-br-md"
-                                : "bg-background border border-border/50 rounded-bl-md"
-                            }`}
-                          >
-                            <p className="text-sm leading-relaxed break-words">{message.message}</p>
-                            <div className="flex items-center justify-end gap-1 mt-1">
-                              <span
-                                className={`text-xs ${
-                                  message.sender === "admin" ? "text-primary-foreground/70" : "text-muted-foreground"
-                                }`}
-                              >
-                                {message.timestamp}
-                              </span>
-                              {message.sender === "admin" && (
-                                <div className="flex gap-0.5 ml-1">
-                                  <div className="w-1 h-1 bg-primary-foreground/70 rounded-full"></div>
-                                  <div className="w-1 h-1 bg-primary-foreground/70 rounded-full"></div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
+              ) : (
+                <div className="space-y-1 p-2">
+                  {messages.map((message) => (
+                    <div
+                      key={message.id}
+                      onClick={() => handleMessageSelect(message.id)}
+                      className={`p-3 rounded-lg cursor-pointer transition-colors border ${
+                        selectedMessageId === message.id
+                          ? 'bg-blue-50 border-blue-200'
+                          : 'hover:bg-slate-50 border-transparent'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex-1 min-w-0">
+                          <h4 className="text-sm font-medium text-slate-900 truncate">
+                            {message.name}
+                          </h4>
+                          <p className="text-xs text-slate-500 truncate">{message.email}</p>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {getStatusIcon(message.status)}
+                          <span className="text-xs text-slate-500">
+                            {formatTimestamp(message.created_at)}
+                          </span>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </div>
+                      <p className="text-sm text-slate-600 line-clamp-2 mb-2">
+                        {message.message}
+                      </p>
+                      <Badge 
+                        variant="outline" 
+                        className={`text-xs ${getStatusColor(message.status)}`}
+                      >
+                        {message.status.toUpperCase()}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </CardContent>
+        </Card>
 
-              {/* Message Input Area */}
-              <div className="p-4 bg-background border-t border-border">
-                {/* Quick Replies */}
-                <div className="mb-3">
-                  <ScrollArea className="w-full">
-                    <div className="flex gap-2 pb-2">
+        {/* Message Detail & Reply */}
+        <Card className="lg:col-span-2">
+          {selectedMessage ? (
+            <>
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <User className="w-5 h-5" />
+                      {selectedMessage.name}
+                    </CardTitle>
+                    <div className="flex items-center gap-4 mt-2 text-sm text-slate-600">
+                      <div className="flex items-center gap-1">
+                        <Mail className="w-4 h-4" />
+                        {selectedMessage.email}
+                      </div>
+                      {selectedMessage.phone && (
+                        <div className="flex items-center gap-1">
+                          <Phone className="w-4 h-4" />
+                          {selectedMessage.phone}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <Badge 
+                    className={getStatusColor(selectedMessage.status)}
+                  >
+                    {selectedMessage.status.toUpperCase()}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Original Message */}
+                <div className="bg-slate-50 p-4 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-slate-700">Original Message</span>
+                    <span className="text-xs text-slate-500">
+                      {new Date(selectedMessage.created_at).toLocaleString()}
+                    </span>
+                  </div>
+                  <p className="text-slate-800 whitespace-pre-wrap">{selectedMessage.message}</p>
+                </div>
+
+                {/* Admin Reply if exists */}
+                {selectedMessage.admin_reply && (
+                  <div className="bg-blue-50 p-4 rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-blue-700">Your Reply</span>
+                      <span className="text-xs text-blue-600">
+                        {selectedMessage.replied_at && new Date(selectedMessage.replied_at).toLocaleString()}
+                      </span>
+                    </div>
+                    <p className="text-blue-800 whitespace-pre-wrap">{selectedMessage.admin_reply}</p>
+                  </div>
+                )}
+
+                {/* Reply Form */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-slate-700">
+                      {selectedMessage.admin_reply ? 'Send Another Reply' : 'Send Reply'}
+                    </span>
+                  </div>
+
+                  {/* Quick Replies */}
+                  <div className="space-y-2">
+                    <span className="text-xs text-slate-600">Quick Replies:</span>
+                    <div className="flex flex-wrap gap-2">
                       {quickReplies.slice(0, 3).map((reply, index) => (
                         <Button
                           key={index}
                           size="sm"
                           variant="outline"
                           onClick={() => handleQuickReply(reply)}
-                          className="text-xs h-7 px-3 rounded-full hover:bg-primary/10 whitespace-nowrap flex-shrink-0"
+                          className="text-xs h-7 px-3 rounded-full hover:bg-primary/10"
                         >
                           {reply.substring(0, 30)}...
                         </Button>
                       ))}
                     </div>
-                  </ScrollArea>
-                </div>
+                  </div>
 
-                {/* Input Row */}
-                <div className="flex items-end gap-3">
-                  <Button size="sm" variant="ghost" className="w-9 h-9 p-0 flex-shrink-0 hover:bg-muted">
-                    <Paperclip className="w-4 h-4" />
-                  </Button>
-                  <div className="flex-1 relative">
-                    <Input
-                      value={newMessage}
-                      onChange={(e) => setNewMessage(e.target.value)}
-                      placeholder="Type a message..."
-                      onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
-                      className="rounded-full pr-12 py-2 h-10 bg-muted/30 border-muted focus:bg-background focus:border-primary/50"
-                    />
+                  {/* Reply Textarea */}
+                  <Textarea
+                    placeholder="Type your reply here..."
+                    value={replyText}
+                    onChange={(e) => setReplyText(e.target.value)}
+                    rows={4}
+                    disabled={isSubmitting}
+                  />
+
+                  {/* Send Button */}
+                  <div className="flex justify-end">
                     <Button
-                      size="sm"
-                      variant="ghost"
-                      className="absolute right-1 top-1/2 -translate-y-1/2 w-8 h-8 p-0 rounded-full hover:bg-muted"
+                      onClick={handleSendReply}
+                      disabled={!replyText.trim() || isSubmitting}
+                      className="bg-blue-600 hover:bg-blue-700"
                     >
-                      <Smile className="w-4 h-4" />
+                      {isSubmitting ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                          Sending...
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-4 h-4 mr-2" />
+                          Send Reply
+                        </>
+                      )}
                     </Button>
                   </div>
-                  <Button
-                    onClick={handleSendMessage}
-                    className="w-10 h-10 p-0 rounded-full bg-primary hover:bg-primary/90 flex-shrink-0"
-                    disabled={!newMessage.trim()}
-                  >
-                    <Send className="w-4 h-4" />
-                  </Button>
                 </div>
-              </div>
+              </CardContent>
             </>
           ) : (
-            <div className="flex-1 flex items-center justify-center bg-muted/5">
-              <div className="text-center">
-                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary/10 to-primary/20 flex items-center justify-center mx-auto mb-4">
-                  <MessageSquare className="w-10 h-10 text-primary" />
-                </div>
-                <h3 className="font-semibold mb-2 text-foreground">Select a chat to start messaging</h3>
-                <p className="text-sm text-muted-foreground">
-                  Choose a conversation from the sidebar to begin chatting
-                </p>
+            <CardContent className="flex items-center justify-center h-full">
+              <div className="text-center text-slate-500">
+                <MessageSquare className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                <p>Select a message to view details and reply</p>
               </div>
-            </div>
+            </CardContent>
           )}
-        </div>
+        </Card>
       </div>
     </div>
   )

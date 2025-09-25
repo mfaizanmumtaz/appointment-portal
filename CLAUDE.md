@@ -19,6 +19,8 @@ This is an appointment booking portal for Irfan Malik (CEO of Xeven Solutions), 
 ### Tech Stack
 - **Framework**: Next.js 14 (App Router)
 - **Language**: TypeScript with strict mode
+- **Database**: Supabase (PostgreSQL)
+- **Email**: Supabase Edge Functions with Gmail SMTP
 - **Styling**: Tailwind CSS 4 with CSS variables
 - **UI Components**: Radix UI primitives + shadcn/ui (New York style)
 - **Forms**: React Hook Form with Zod validation
@@ -46,6 +48,8 @@ This is an appointment booking portal for Irfan Malik (CEO of Xeven Solutions), 
 
 #### `/lib` - Utility functions
 - `utils.ts` - Contains `cn()` function for className merging using clsx and tailwind-merge
+- `supabase.ts` - Supabase client configuration
+- `meeting-utils.ts` - Meeting booking utilities and email functions
 
 #### `/hooks` - Custom React hooks
 - `use-mobile.ts` - Mobile device detection
@@ -74,3 +78,35 @@ This is an appointment booking portal for Irfan Malik (CEO of Xeven Solutions), 
    - In-person meetings
 
 6. **Admin Features**: Comprehensive dashboard with analytics, calendar management, chat history, photo gallery, and session triage
+
+#### `/supabase` - Backend configuration
+- `/functions/send-meeting-email/` - Edge function for sending meeting confirmation emails via Gmail SMTP
+
+## Email Configuration
+
+The application uses Supabase Edge Functions to send meeting confirmation emails through Gmail SMTP.
+
+### Setup Requirements
+
+1. **Gmail App Password**: Generate an app-specific password in Gmail account settings
+2. **Supabase Secrets**: Set environment variables in Supabase dashboard or CLI:
+   ```bash
+   npx supabase secrets set GMAIL_USER="your-email@gmail.com"
+   npx supabase secrets set GMAIL_APP_PASSWORD="your-app-password"
+   ```
+
+3. **Deploy Edge Function**:
+   ```bash
+   npx supabase functions deploy send-meeting-email
+   ```
+
+### Email Function Details
+- **Location**: `supabase/functions/send-meeting-email/index.ts`
+- **Method**: Gmail SMTP via port 465 (SSL)
+- **Library**: denomailer for SMTP client
+- **Integration**: Called from `lib/meeting-utils.ts:sendMeetingEmail()`
+
+### Troubleshooting
+- Ensure Gmail 2FA is enabled and app password is generated correctly
+- Check Supabase function logs for SMTP connection errors
+- Verify environment variables are set in Supabase (not local .env files)

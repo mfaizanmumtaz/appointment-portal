@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { CheckCircle, XCircle, Clock, MessageSquare, User, Video, MapPin } from "lucide-react"
+import { CheckCircle, XCircle, Clock, MessageSquare, User, Video, MapPin, RefreshCw } from "lucide-react"
 import type { MeetingType } from "@/lib/types/database"
 
 
@@ -168,7 +168,10 @@ export function AdminRequests() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground">Loading requests...</p>
+        <div className="text-center">
+          <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2 text-blue-500" />
+          <p className="text-slate-600">Loading requests...</p>
+        </div>
       </div>
     )
   }

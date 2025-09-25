@@ -3,6 +3,7 @@ export type SessionType = 'free' | 'paid'
 export type AppointmentStatus = 'pending' | 'confirmed' | 'completed' | 'cancelled'
 export type SlotType = 'business' | 'student' | 'both'
 export type MeetingType = 'online' | 'in-person'
+export type MessageStatus = 'unread' | 'read' | 'replied'
 
 export interface Appointment {
   id: string
@@ -48,6 +49,18 @@ export interface AdminSetting {
   updated_at: string
 }
 
+export interface InstantMessage {
+  id: string
+  name: string
+  email: string
+  phone?: string | null
+  message: string
+  status: MessageStatus
+  admin_reply?: string | null
+  replied_at?: string | null
+  created_at: string
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -70,6 +83,11 @@ export interface Database {
         Row: AdminSetting
         Insert: Omit<AdminSetting, 'id' | 'updated_at'>
         Update: Partial<Omit<AdminSetting, 'id' | 'updated_at'>>
+      }
+      instant_messages: {
+        Row: InstantMessage
+        Insert: Omit<InstantMessage, 'id' | 'created_at'>
+        Update: Partial<Omit<InstantMessage, 'id' | 'created_at'>>
       }
     }
   }
