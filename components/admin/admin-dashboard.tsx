@@ -7,6 +7,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Calendar, DollarSign, Users, MessageSquare, TrendingUp, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Appointment, TimeSlot } from "@/lib/types/database"
 
 
 export function AdminDashboard() {
@@ -22,6 +23,10 @@ export function AdminDashboard() {
     businessTotal: 0,
     studentTotal: 0,
     inPersonTotal: 0,
+    paidAvailable: 0,
+    freeAvailable: 0,
+    bookedSlots: 0,
+    pendingAppointments: 0,
   })
   const [weeklyData, setWeeklyData] = useState<Array<{ day: string; paid: number; free: number }>>([])
   const [loading, setLoading] = useState(true)
@@ -61,7 +66,7 @@ export function AdminDashboard() {
       // Get ALL appointments from database
       const { data: allAppointments, error: allError } = await supabase
         .from('appointments')
-        .select('*')
+        .select('*') as { data: Appointment[] | null; error: any }
 
       if (allError) {
         console.error('Error fetching all appointments:', allError)
@@ -73,7 +78,7 @@ export function AdminDashboard() {
         .from('appointments')
         .select('*')
         .gte('date', weekStart.toISOString().split('T')[0])
-        .lte('date', weekEnd.toISOString().split('T')[0])
+        .lte('date', weekEnd.toISOString().split('T')[0]) as { data: Appointment[] | null; error: any }
 
       if (weekError) {
         console.error('Error fetching week appointments:', weekError)
@@ -84,7 +89,7 @@ export function AdminDashboard() {
       const { data: upcomingAppointments, error: upcomingError } = await supabase
         .from('appointments')
         .select('*')
-        .gte('date', todayStr)
+        .gte('date', todayStr) as { data: Appointment[] | null; error: any }
 
       if (upcomingError) {
         console.error('Error fetching upcoming appointments:', upcomingError)
@@ -96,7 +101,7 @@ export function AdminDashboard() {
         .from('time_slots')
         .select('*')
         .eq('date', todayStr)
-        .eq('is_available', true)
+        .eq('is_available', true) as { data: TimeSlot[] | null; error: any }
 
       if (todaySlotsError) {
         console.error('Error fetching today slots:', todaySlotsError)
@@ -108,10 +113,29 @@ export function AdminDashboard() {
         .select('*')
         .gte('date', monthStart.toISOString().split('T')[0])
         .lte('date', monthEnd.toISOString().split('T')[0])
-        .eq('is_available', true)
+        .eq('is_available', true) as { data: TimeSlot[] | null; error: any }
 
       if (monthSlotsError) {
         console.error('Error fetching month slots:', monthSlotsError)
+      }
+
+      // Get all slots for status indicators
+      const { data: allSlots, error: allSlotsError } = await supabase
+        .from('time_slots')
+        .select('*') as { data: TimeSlot[] | null; error: any }
+
+      if (allSlotsError) {
+        console.error('Error fetching all slots:', allSlotsError)
+      }
+
+      // Get pending appointments
+      const { data: pendingAppts, error: pendingError } = await supabase
+        .from('appointments')
+        .select('*')
+        .eq('status', 'pending') as { data: Appointment[] | null; error: any }
+
+      if (pendingError) {
+        console.error('Error fetching pending appointments:', pendingError)
       }
 
       const allPaidAppts = allAppointments?.filter(a => a.session_type === 'paid') || []
@@ -125,6 +149,15 @@ export function AdminDashboard() {
       const weekPaidAppts = weekAppointments?.filter(a => a.session_type === 'paid') || []
       const weekFreeAppts = weekAppointments?.filter(a => a.session_type === 'free') || []
 
+      // Calculate status indicator counts
+      const availableSlots = allSlots?.filter(s => s.is_available) || []
+      const bookedSlots = allSlots?.filter(s => !s.is_available) || []
+      
+      // All available slots can be either paid or free (they're the same slots)
+      const paidAvailable = availableSlots.length
+      const freeAvailable = availableSlots.length
+      const pendingAppointments = pendingAppts?.length || 0
+
       setStats({
         totalRevenue,
         totalBookings: allAppointments?.length || 0,
@@ -137,6 +170,10 @@ export function AdminDashboard() {
         businessTotal: allBusinessAppts.length,
         studentTotal: allStudentAppts.length,
         inPersonTotal: allInPersonAppts.length,
+        paidAvailable,
+        freeAvailable,
+        bookedSlots: bookedSlots.length,
+        pendingAppointments,
       })
 
       const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -228,24 +265,24 @@ export function AdminDashboard() {
         </Card>
       </div>
 
-      {/* Slot Status Legend */}
+      {/* Slot Status Indicators with Real Data */}
       <div className="flex justify-center">
         <div className="flex items-center gap-6 p-4 bg-muted/30 rounded-xl">
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 bg-blue-500 rounded"></div>
-            <span className="text-sm">Paid Available</span>
+            <span className="text-sm">Paid Available ({stats.paidAvailable})</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 bg-green-500 rounded"></div>
-            <span className="text-sm">Free Available</span>
+            <span className="text-sm">Free Available ({stats.freeAvailable})</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 bg-gray-400 rounded"></div>
-            <span className="text-sm">Booked</span>
+            <span className="text-sm">Booked ({stats.bookedSlots})</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 bg-orange-500 rounded"></div>
-            <span className="text-sm">Pending</span>
+            <span className="text-sm">Pending ({stats.pendingAppointments})</span>
           </div>
         </div>
       </div>

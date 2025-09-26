@@ -16,6 +16,7 @@ export interface Appointment {
   date: string
   time: string
   status: AppointmentStatus
+  slot_id?: string | null
   meeting_type?: MeetingType | null
   meeting_url?: string | null
   venue_address?: string | null
@@ -61,6 +62,23 @@ export interface InstantMessage {
   created_at: string
 }
 
+export interface StudentTriageLog {
+  id: string
+  student_name: string
+  student_email: string
+  student_phone?: string | null
+  purpose: string
+  ai_decision: 'approved' | 'declined' | 'uncertain'
+  ai_reasoning: string
+  ai_confidence: number
+  manual_review: boolean
+  manual_decision?: 'approved' | 'declined' | null
+  manual_notes?: string | null
+  reviewed_by?: string | null
+  reviewed_at?: string | null
+  created_at: string
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -88,6 +106,11 @@ export interface Database {
         Row: InstantMessage
         Insert: Omit<InstantMessage, 'id' | 'created_at'>
         Update: Partial<Omit<InstantMessage, 'id' | 'created_at'>>
+      }
+      student_triage_log: {
+        Row: StudentTriageLog
+        Insert: Omit<StudentTriageLog, 'id' | 'created_at'>
+        Update: Partial<Omit<StudentTriageLog, 'id' | 'created_at'>>
       }
     }
   }

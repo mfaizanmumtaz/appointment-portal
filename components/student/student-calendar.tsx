@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { MapPin, Video, Users } from "lucide-react"
+import { MapPin, Video, Users, RefreshCw } from "lucide-react"
 
 interface StudentCalendarProps {
   sessionType: "online-free" | "online-paid" | "in-person"
@@ -81,7 +81,12 @@ export function StudentCalendar({ sessionType, onBookingSelect }: StudentCalenda
           </CardHeader>
           <CardContent>
             {loading ? (
-              <div className="text-center py-8 text-muted-foreground">Loading slots...</div>
+              <div className="flex items-center justify-center py-8">
+                <div className="text-center">
+                  <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2 text-blue-500" />
+                  <p className="text-slate-600">Loading available slots...</p>
+                </div>
+              </div>
             ) : slots.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">No available slots found</div>
             ) : (
@@ -145,7 +150,12 @@ export function StudentCalendar({ sessionType, onBookingSelect }: StudentCalenda
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="text-center py-8 text-muted-foreground">Loading slots...</div>
+            <div className="flex items-center justify-center py-8">
+              <div className="text-center">
+                <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2 text-blue-500" />
+                <p className="text-slate-600">Loading available slots...</p>
+              </div>
+            </div>
           ) : slots.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">No available slots found</div>
           ) : (

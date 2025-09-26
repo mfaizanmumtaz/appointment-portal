@@ -25,6 +25,13 @@ interface GalleryImage {
 export function AdminGallery() {
   const [images, setImages] = useState<GalleryImage[]>([])
   const [loading, setLoading] = useState(true)
+  const [selectedImages, setSelectedImages] = useState<string[]>([])
+  const [editingImage, setEditingImage] = useState<GalleryImage | null>(null)
+  const [showUploadModal, setShowUploadModal] = useState(false)
+  const [draggedImage, setDraggedImage] = useState<string | null>(null)
+  const [uploadProgress, setUploadProgress] = useState<number>(0)
+  const [isUploading, setIsUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     fetchGalleryImages()
@@ -157,14 +164,6 @@ export function AdminGallery() {
       </div>
     )
   }
-
-  const [selectedImages, setSelectedImages] = useState<string[]>([])
-  const [editingImage, setEditingImage] = useState<GalleryImage | null>(null)
-  const [showUploadModal, setShowUploadModal] = useState(false)
-  const [draggedImage, setDraggedImage] = useState<string | null>(null)
-  const [uploadProgress, setUploadProgress] = useState<number>(0)
-  const [isUploading, setIsUploading] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleImageSelect = (imageId: string) => {
     setSelectedImages((prev) => (prev.includes(imageId) ? prev.filter((id) => id !== imageId) : [...prev, imageId]))

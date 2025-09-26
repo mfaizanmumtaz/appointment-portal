@@ -14,11 +14,12 @@ interface StudentCheckoutProps {
   sessionType: "online-free" | "online-paid" | "in-person"
   formData: any
   selectedSlot: any
-  onSuccess: () => void
+  onSuccess: (meetingDetails: { meetingUrl?: string; venueAddress?: string }) => void
 }
 
 export function StudentCheckout({ sessionType, formData, selectedSlot, onSuccess }: StudentCheckoutProps) {
   const [isProcessing, setIsProcessing] = useState(false)
+  const [generatedDetails, setGeneratedDetails] = useState<{ meetingUrl?: string; venueAddress?: string }>({})
   const price = sessionType === "in-person" ? 75 : sessionType === "online-paid" ? 50 : 0
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -29,32 +30,66 @@ export function StudentCheckout({ sessionType, formData, selectedSlot, onSuccess
 
     setTimeout(() => {
       setIsProcessing(false)
-      onSuccess()
+      // Pass the meeting details back to parent
+      onSuccess(generatedDetails)
     }, 2000)
   }
 
   const saveAppointment = async () => {
     const { supabase } = await import("@/lib/supabase")
 
+    // Import meeting utils for generating meeting details
+    const { generateZoomLink, generateVenueAddress } = await import("@/lib/meeting-utils")
+
+    // Generate meeting details based on session type
+    let meetingUrl = null
+    let venueAddress = null
+    let meetingNotes = ""
+
+    if (sessionType === 'online-paid') {
+      const zoomDetails = generateZoomLink()
+      meetingUrl = zoomDetails.url
+      meetingNotes = `Online student session via Zoom. Duration: 30 minutes. Student rate: $50.`
+    } else if (sessionType === 'in-person') {
+      venueAddress = generateVenueAddress()
+      meetingNotes = `In-person student session. Duration: 60 minutes. Student rate: $75. Please bring your laptop.`
+    }
+
     const appointmentData = {
       type: sessionType === 'in-person' ? 'in-person' as const : 'student' as const,
       session_type: sessionType === 'online-free' ? 'free' as const : 'paid' as const,
-      name: formData.name,
+      name: formData.firstName, // Fixed: use firstName consistently
       email: formData.email,
       phone: formData.phone,
       company: null,
       date: selectedSlot.date,
       time: selectedSlot.time,
-      status: 'confirmed' as const
+      slot_id: selectedSlot.id, // NEW: Use foreign key relationship
+      status: 'confirmed' as const,
+      purpose: formData.purpose,
+      meeting_type: sessionType === 'in-person' ? 'in-person' as const : 'online' as const,
+      meeting_url: meetingUrl,
+      venue_address: venueAddress,
+      meeting_notes: meetingNotes
     }
 
-    const { error } = await supabase
+    const { error: appointmentError } = await supabase
       .from('appointments')
       .insert(appointmentData)
 
-    if (error) {
-      console.error('Error saving appointment:', error)
+    if (appointmentError) {
+      console.error('Error saving appointment:', appointmentError)
+      return
     }
+
+    // Note: Slot will be automatically marked as unavailable by database trigger
+    // No need to manually update is_available field anymore
+
+    // Store generated details for success screen
+    setGeneratedDetails({
+      meetingUrl: meetingUrl,
+      venueAddress: venueAddress
+    })
   }
 
   if (sessionType === "online-free") {

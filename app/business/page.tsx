@@ -57,6 +57,7 @@ export default function BusinessPage() {
   const [selectedDate, setSelectedDate] = useState(new Date())
   const [availableSlots, setAvailableSlots] = useState<TimeSlot[]>([])
   const [loading, setLoading] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
   const [stats, setStats] = useState({
     totalBookingsThisWeek: 0,
     upcomingMeetings: 0,
@@ -250,6 +251,7 @@ export default function BusinessPage() {
       company: null,
       date: slot.date,
       time: slot.time,
+      slot_id: slot.id, // NEW: Use foreign key relationship
       status: 'confirmed' as const, // Auto-confirm all bookings if slot was made available
       meeting_type: bookingData.meetingMode,
       meeting_url: meetingUrl,
@@ -267,32 +269,32 @@ export default function BusinessPage() {
       return
     }
 
-    const { error: slotError } = await supabase
-      .from('time_slots')
-      .update({ is_available: false })
-      .eq('id', slot.id)
-
-    if (slotError) {
-      console.error('Error updating slot availability:', slotError)
-    }
+    // Note: Slot will be automatically marked as unavailable by database trigger
+    // No need to manually update is_available field anymore
 
     // Send instant email with meeting details
-    try {
-      await sendMeetingEmail({
-        to: bookingData.email,
-        name: bookingData.firstName,
-        date: slot.date,
-        time: slot.time,
-        meetingType: bookingData.meetingMode!,
-        meetingUrl: meetingUrl || undefined,
-        venueAddress: venueAddress || undefined,
-        duration: bookingData.duration || undefined
-      })
+    const ENABLE_EMAIL_SENDING = false // TODO: Set to true when Edge Function is fixed
 
-      console.log('📧 Meeting confirmation email sent successfully')
-    } catch (emailError) {
-      console.error('Failed to send confirmation email:', emailError)
-      // Don't fail the booking if email fails
+    if (ENABLE_EMAIL_SENDING) {
+      try {
+        await sendMeetingEmail({
+          to: bookingData.email,
+          name: bookingData.firstName,
+          date: slot.date,
+          time: slot.time,
+          meetingType: bookingData.meetingMode!,
+          meetingUrl: meetingUrl || undefined,
+          venueAddress: venueAddress || undefined,
+          duration: bookingData.duration || undefined
+        })
+
+        console.log('📧 Meeting confirmation email sent successfully')
+      } catch (emailError) {
+        console.error('Failed to send confirmation email:', emailError)
+        // Don't fail the booking if email fails
+      }
+    } else {
+      console.log('📧 Email sending disabled - appointment created successfully without email')
     }
   }
 
@@ -788,13 +790,22 @@ export default function BusinessPage() {
                   <Button
                     onClick={async () => {
                       if (bookingData.selectedSlot) {
-                        await saveAppointment(bookingData.selectedSlot)
+                        try {
+                          setIsProcessing(true)
+                          await saveAppointment(bookingData.selectedSlot)
+                          setStep("confirmation")
+                        } catch (error) {
+                          console.error('Failed to save appointment:', error)
+                          alert('Failed to save appointment. Please try again.')
+                        } finally {
+                          setIsProcessing(false)
+                        }
                       }
-                      setStep("confirmation")
                     }}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 h-11 sm:h-auto text-sm sm:text-base"
+                    disabled={isProcessing}
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 h-11 sm:h-auto text-sm sm:text-base disabled:opacity-50"
                   >
-                    Pay Now
+                    {isProcessing ? 'Processing...' : 'Pay Now'}
                   </Button>
                 </div>
               </CardContent>

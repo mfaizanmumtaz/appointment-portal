@@ -13,6 +13,7 @@ import { GraduationCap, CheckCircle, XCircle, ArrowLeft, Calendar, Clock, MapPin
 import { StudentCalendar } from "@/components/student/student-calendar"
 import { StudentCheckout } from "@/components/student/student-checkout"
 import Link from "next/link"
+import { evaluateStudentRequest, saveTriageResult, getTriageMessage, formatTriageReasoning } from "@/lib/ai-triage-utils"
 
 type Step = "form" | "options" | "calendar" | "checkout" | "triage" | "success" | "declined"
 type TriageResult = "approved" | "declined" | "uncertain"
@@ -35,7 +36,13 @@ export default function StudentPage() {
   })
   const [sessionType, setSessionType] = useState<SessionType | null>(null)
   const [triageResult, setTriageResult] = useState<TriageResult | null>(null)
+  const [triageReasoning, setTriageReasoning] = useState<string>("")
+  const [isTriageLoading, setIsTriageLoading] = useState(false)
   const [selectedSlot, setSelectedSlot] = useState<any>(null)
+  const [generatedMeetingDetails, setGeneratedMeetingDetails] = useState<{
+    meetingUrl?: string
+    venueAddress?: string
+  }>({})
 
   const goBack = () => {
     if (step === "options") setStep("form")
@@ -48,6 +55,25 @@ export default function StudentPage() {
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    
+    // Form validation
+    if (!formData.firstName.trim()) {
+      alert("Please enter your first name")
+      return
+    }
+    if (!formData.email.trim()) {
+      alert("Please enter your email address")
+      return
+    }
+    if (!formData.phone.trim()) {
+      alert("Please enter your phone number")
+      return
+    }
+    if (!formData.purpose.trim()) {
+      alert("Please describe what you'd like guidance on")
+      return
+    }
+    
     setStep("options")
   }
 
@@ -55,25 +81,61 @@ export default function StudentPage() {
     setSessionType(type)
     if (type === "online-free") {
       setStep("triage")
-      setTimeout(() => {
-        const results: TriageResult[] = ["approved", "declined", "uncertain"]
-        const randomResult = results[Math.floor(Math.random() * results.length)]
-        setTriageResult(randomResult)
-        if (randomResult === "declined") {
-          setStep("declined")
-        } else if (randomResult === "approved") {
-          setStep("calendar")
+      setIsTriageLoading(true)
+      
+      // Real AI triage evaluation using GPT-4o-mini
+      evaluateStudentRequest({
+        name: formData.firstName,
+        email: formData.email,
+        phone: formData.phone,
+        purpose: formData.purpose
+      }).then(async (response) => {
+        setIsTriageLoading(false)
+        
+        if (response.success && response.result) {
+          const decision = response.result.decision
+          const reasoning = formatTriageReasoning(response.result.reasoning)
+          
+          setTriageResult(decision)
+          setTriageReasoning(reasoning)
+          
+          // Save triage result to database for admin review
+          await saveTriageResult({
+            name: formData.firstName,
+            email: formData.email,
+            phone: formData.phone,
+            purpose: formData.purpose
+          }, response.result)
+          
+          // Route user based on AI decision
+          if (decision === "declined") {
+            setStep("declined")
+          } else if (decision === "approved") {
+            setStep("calendar")
+          } else if (decision === "uncertain") {
+            // For uncertain cases, show a special message but allow calendar access
+            // Admin can review manually later
+            setStep("calendar")
+          }
+        } else {
+          // Handle AI failure gracefully
+          console.error('AI triage failed:', response.error)
+          setTriageResult("uncertain")
+          setTriageReasoning("AI evaluation temporarily unavailable. Your request will be reviewed manually.")
+          setStep("calendar") // Allow user to continue
         }
-      }, 2000)
+      }).catch((error) => {
+        console.error('AI triage error:', error)
+        setIsTriageLoading(false)
+        setTriageResult("uncertain")
+        setTriageReasoning("AI evaluation temporarily unavailable. Your request will be reviewed manually.")
+        setStep("calendar") // Allow user to continue
+      })
     } else {
       setStep("calendar")
     }
   }
 
-  const mockTriageApproval = () => {
-    setTriageResult("approved")
-    setStep("calendar")
-  }
 
   const handleSlotSelect = async (slot: any) => {
     setSelectedSlot(slot)
@@ -83,6 +145,11 @@ export default function StudentPage() {
     } else {
       setStep("checkout")
     }
+  }
+
+  const handleCheckoutSuccess = (meetingDetails: { meetingUrl?: string; venueAddress?: string }) => {
+    setGeneratedMeetingDetails(meetingDetails)
+    setStep("success")
   }
 
   const saveAppointment = async (slot: any) => {
@@ -97,7 +164,10 @@ export default function StudentPage() {
       company: null,
       date: slot.date,
       time: slot.time,
-      status: 'pending' as const
+      slot_id: slot.id, // NEW: Use foreign key relationship
+      status: 'pending' as const,
+      purpose: formData.purpose,
+      meeting_type: sessionType === 'in-person' ? 'in-person' as const : 'online' as const
     }
 
     const { error: appointmentError } = await supabase
@@ -109,14 +179,8 @@ export default function StudentPage() {
       return
     }
 
-    const { error: slotError } = await supabase
-      .from('time_slots')
-      .update({ is_available: false })
-      .eq('id', slot.id)
-
-    if (slotError) {
-      console.error('Error updating slot availability:', slotError)
-    }
+    // Note: Slot will be automatically marked as unavailable by database trigger
+    // No need to manually update is_available field anymore
   }
 
   return (
@@ -174,30 +238,35 @@ export default function StudentPage() {
               <CardContent>
                 <form onSubmit={handleFormSubmit} className="space-y-6">
                   <div>
-                    <Label htmlFor="firstName">First Name</Label>
+                    <Label htmlFor="firstName">First Name *</Label>
                     <Input
                       id="firstName"
+                      required
                       value={formData.firstName}
                       onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
                       className="rounded-xl"
+                      placeholder="Your first name"
                     />
                   </div>
 
                   <div>
-                    <Label htmlFor="email">Email Address</Label>
+                    <Label htmlFor="email">Email Address *</Label>
                     <Input
                       id="email"
                       type="email"
+                      required
                       value={formData.email}
                       onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                       className="rounded-xl"
+                      placeholder="your.email@example.com"
                     />
                   </div>
 
                   <div>
-                    <Label htmlFor="phone">Phone Number (with country code)</Label>
+                    <Label htmlFor="phone">Phone Number (with country code) *</Label>
                     <Input
                       id="phone"
+                      required
                       placeholder="+1 (555) 123-4567"
                       value={formData.phone}
                       onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
@@ -206,10 +275,11 @@ export default function StudentPage() {
                   </div>
 
                   <div>
-                    <Label htmlFor="purpose">Purpose / Description</Label>
+                    <Label htmlFor="purpose">Purpose / Description *</Label>
                     <Textarea
                       id="purpose"
                       rows={4}
+                      required
                       placeholder="Tell me briefly what you'd like guidance on (freelancing, AI, career direction, etc.)"
                       value={formData.purpose}
                       onChange={(e) => setFormData({ ...formData, purpose: e.target.value })}
@@ -284,13 +354,50 @@ export default function StudentPage() {
           {step === "triage" && (
             <Card className="card-calm text-center">
               <CardContent className="p-8">
-                <div className="space-y-4">
-                  <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto">
-                    <GraduationCap className="w-8 h-8 text-primary animate-pulse" />
+                {isTriageLoading ? (
+                  <div className="space-y-4">
+                    <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto">
+                      <GraduationCap className="w-8 h-8 text-primary animate-pulse" />
+                    </div>
+                    <h3 className="text-xl font-semibold">AI is reviewing your request...</h3>
+                    <p className="text-muted-foreground">
+                      Our AI is analyzing your purpose and matching it with our mentorship criteria. This may take a few moments.
+                    </p>
+                    <div className="flex items-center justify-center space-x-2 text-sm text-muted-foreground">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+                      <span>Processing with GPT-4o-mini...</span>
+                    </div>
                   </div>
-                  <h3 className="text-xl font-semibold">AI is reviewing your request...</h3>
-                  <p className="text-muted-foreground">Evaluating your guidance needs and session fit</p>
-                </div>
+                ) : triageResult && (
+                  <div className="space-y-4">
+                    {triageResult === "approved" && (
+                      <>
+                        <CheckCircle className="w-16 h-16 text-green-500 mx-auto" />
+                        <h3 className="text-xl font-semibold text-green-700">Request Approved!</h3>
+                        <p className="text-muted-foreground">{getTriageMessage(triageResult)}</p>
+                        {triageReasoning && (
+                          <p className="text-sm text-muted-foreground italic">"{triageReasoning}"</p>
+                        )}
+                      </>
+                    )}
+                    
+                    {triageResult === "uncertain" && (
+                      <>
+                        <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto">
+                          <GraduationCap className="w-8 h-8 text-yellow-600" />
+                        </div>
+                        <h3 className="text-xl font-semibold text-yellow-700">Under Review</h3>
+                        <p className="text-muted-foreground">{getTriageMessage(triageResult)}</p>
+                        {triageReasoning && (
+                          <p className="text-sm text-muted-foreground italic">"{triageReasoning}"</p>
+                        )}
+                        <Button onClick={() => setStep("calendar")} className="mt-4">
+                          Continue to Calendar
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
@@ -302,10 +409,12 @@ export default function StudentPage() {
                 <div className="space-y-4">
                   <XCircle className="w-16 h-16 text-red-500 mx-auto" />
                   <h3 className="text-xl font-semibold text-red-700">Request not approved</h3>
-                  <p className="text-muted-foreground">
-                    Thank you for your interest. Due to limited availability, this meeting cannot be scheduled. You can
-                    still get guidance anytime through irfanGPT or explore my company via XevenGPT.
-                  </p>
+                  <p className="text-muted-foreground">{getTriageMessage("declined")}</p>
+                  {triageReasoning && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <p className="text-sm text-red-700 italic">"{triageReasoning}"</p>
+                    </div>
+                  )}
                   <div className="flex gap-3 justify-center flex-wrap">
                     <Button asChild variant="outline">
                       <a href="https://irfangpt.com" target="_blank" rel="noopener noreferrer">
@@ -335,7 +444,7 @@ export default function StudentPage() {
               sessionType={sessionType}
               formData={formData}
               selectedSlot={selectedSlot}
-              onSuccess={() => setStep("success")}
+              onSuccess={handleCheckoutSuccess}
             />
           )}
 
@@ -378,7 +487,9 @@ export default function StudentPage() {
                       <CardContent className="p-4 space-y-2">
                         <div className="flex items-center gap-2">
                           <Calendar className="w-4 h-4 text-blue-600" />
-                          <span className="font-medium">March 15, 2024 at 2:00 PM</span>
+                          <span className="font-medium">
+                            {selectedSlot && new Date(selectedSlot.date).toLocaleDateString()} at {selectedSlot?.time}
+                          </span>
                         </div>
                         <div className="flex items-center gap-2">
                           <GraduationCap className="w-4 h-4 text-blue-600" />
@@ -388,10 +499,12 @@ export default function StudentPage() {
                           <Clock className="w-4 h-4 text-blue-600" />
                           <span>30 minutes - $50</span>
                         </div>
-                        <div className="mt-3 p-2 bg-blue-100 rounded">
-                          <span className="text-sm font-medium text-blue-800">Zoom Link: </span>
-                          <span className="text-sm text-blue-600">https://zoom.us/j/123456789</span>
-                        </div>
+                        {generatedMeetingDetails.meetingUrl && (
+                          <div className="mt-3 p-2 bg-blue-100 rounded">
+                            <span className="text-sm font-medium text-blue-800">Zoom Link: </span>
+                            <span className="text-sm text-blue-600">{generatedMeetingDetails.meetingUrl}</span>
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
 
@@ -424,18 +537,17 @@ export default function StudentPage() {
                       <CardContent className="p-4 space-y-2">
                         <div className="flex items-center gap-2">
                           <Calendar className="w-4 h-4 text-purple-600" />
-                          <span className="font-medium">March 15, 2024 at 2:00 PM</span>
+                          <span className="font-medium">
+                            {selectedSlot && new Date(selectedSlot.date).toLocaleDateString()} at {selectedSlot?.time}
+                          </span>
                         </div>
                         <div className="flex items-center gap-2">
                           <MapPin className="w-4 h-4 text-purple-600" />
-                          <span>123 Business Center, Downtown</span>
-                          <a href="#" className="text-purple-600 underline ml-2">
-                            View Map
-                          </a>
+                          <span>{generatedMeetingDetails.venueAddress || "Venue details sent via email"}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <Clock className="w-4 h-4 text-purple-600" />
-                          <span>30 minutes - $50</span>
+                          <span>60 minutes - $75</span>
                         </div>
                       </CardContent>
                     </Card>

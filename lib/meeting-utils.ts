@@ -46,7 +46,7 @@ export const sendMeetingEmail = async (data: EmailData) => {
 
     if (response.error) {
       console.error('Edge Function error:', response.error)
-      throw new Error(response.error.message)
+      throw new Error(`Edge Function returned error: ${response.error.message}`)
     }
 
     console.log('✅ Email sent successfully via Gmail:', response.data)
@@ -54,7 +54,8 @@ export const sendMeetingEmail = async (data: EmailData) => {
 
   } catch (error) {
     console.error('❌ Failed to send email:', error)
-    return { success: false, message: `Failed to send email: ${error.message}` }
+    // Don't throw - let the calling code handle this gracefully
+    throw new Error(`Failed to send email: ${error.message}`)
   }
 }
 

@@ -162,7 +162,7 @@ export function AdminSlots() {
   }
 
   const handleDeleteSlot = async (id: string) => {
-    if (!confirm('Delete this slot?')) return
+    if (!confirm('Delete this slot? WARNING: This will also cancel any related appointments automatically.')) return
 
     try {
       const { supabase } = await import("@/lib/supabase")
@@ -414,7 +414,7 @@ export function AdminSlots() {
   }
 
   const bulkDeleteSelected = async () => {
-    if (!confirm(`Delete ${selectedSlots.length} selected slots?`)) return
+    if (!confirm(`Delete ${selectedSlots.length} selected slots? WARNING: This will also cancel any related appointments automatically.`)) return
 
     try {
       const { supabase } = await import("@/lib/supabase")

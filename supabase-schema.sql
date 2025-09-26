@@ -9,7 +9,13 @@ CREATE TABLE IF NOT EXISTS appointments (
   company TEXT,
   date DATE NOT NULL,
   time TEXT NOT NULL,
+  slot_id UUID REFERENCES time_slots(id) ON DELETE CASCADE,
   status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'completed', 'cancelled')),
+  meeting_type TEXT CHECK (meeting_type IN ('online', 'in-person')),
+  meeting_url TEXT,
+  venue_address TEXT,
+  meeting_notes TEXT,
+  purpose TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
 
@@ -45,6 +51,7 @@ CREATE TABLE IF NOT EXISTS admin_settings (
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_appointments_date ON appointments(date);
 CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status);
+CREATE INDEX IF NOT EXISTS idx_appointments_slot_id ON appointments(slot_id);
 CREATE INDEX IF NOT EXISTS idx_time_slots_date ON time_slots(date);
 CREATE INDEX IF NOT EXISTS idx_time_slots_available ON time_slots(is_available);
 CREATE INDEX IF NOT EXISTS idx_gallery_order ON gallery_images("order");
@@ -155,12 +162,34 @@ CREATE TABLE IF NOT EXISTS instant_messages (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
 
+-- Create student_triage_log table
+CREATE TABLE IF NOT EXISTS student_triage_log (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  student_name TEXT NOT NULL,
+  student_email TEXT NOT NULL,
+  student_phone TEXT,
+  purpose TEXT NOT NULL,
+  ai_decision TEXT NOT NULL CHECK (ai_decision IN ('approved', 'declined', 'uncertain')),
+  ai_reasoning TEXT NOT NULL,
+  ai_confidence DECIMAL(3,2) NOT NULL CHECK (ai_confidence >= 0.0 AND ai_confidence <= 1.0),
+  manual_review BOOLEAN DEFAULT false,
+  manual_decision TEXT CHECK (manual_decision IN ('approved', 'declined', NULL)),
+  manual_notes TEXT,
+  reviewed_by TEXT,
+  reviewed_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
+);
+
 -- Create index for better performance
 CREATE INDEX IF NOT EXISTS idx_instant_messages_status ON instant_messages(status);
 CREATE INDEX IF NOT EXISTS idx_instant_messages_created_at ON instant_messages(created_at);
+CREATE INDEX IF NOT EXISTS idx_student_triage_log_decision ON student_triage_log(ai_decision);
+CREATE INDEX IF NOT EXISTS idx_student_triage_log_created_at ON student_triage_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_student_triage_log_email ON student_triage_log(student_email);
 
 -- Enable Row Level Security
 ALTER TABLE instant_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE student_triage_log ENABLE ROW LEVEL SECURITY;
 
 -- Create policies for instant messages
 DO $$
@@ -183,6 +212,32 @@ BEGIN
     CREATE POLICY "Admin full access to instant messages"
       ON instant_messages FOR ALL
       USING (true);
+  END IF;
+END
+$$;
+
+-- Create policies for student triage log
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE policyname = 'Public can create triage logs' AND tablename = 'student_triage_log'
+  ) THEN
+    CREATE POLICY "Public can create triage logs"
+      ON student_triage_log FOR INSERT
+      WITH CHECK (true);
+  END IF;
+END
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE policyname = 'Service role can manage triage logs' AND tablename = 'student_triage_log'
+  ) THEN
+    CREATE POLICY "Service role can manage triage logs"
+      ON student_triage_log FOR ALL
+      USING (true)
+      WITH CHECK (true);
   END IF;
 END
 $$;
