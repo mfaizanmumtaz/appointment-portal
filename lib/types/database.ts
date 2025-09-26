@@ -31,6 +31,7 @@ export interface TimeSlot {
   time: string
   is_available: boolean
   slot_type: SlotType
+  session_type: SessionType
   created_at: string
 }
 

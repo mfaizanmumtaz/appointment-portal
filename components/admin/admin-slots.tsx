@@ -19,6 +19,7 @@ interface TimeSlot {
   time: string
   is_available: boolean
   slot_type: "business" | "student" | "both"
+  session_type: "free" | "paid"
   created_at: string
 }
 
@@ -33,6 +34,7 @@ interface BulkCreationSettings {
   }
   selectedDays: string[]
   slotType: "business" | "student" | "both"
+  sessionType: "free" | "paid"
 }
 
 
@@ -59,6 +61,7 @@ export function AdminSlots() {
     date: new Date().toISOString().split('T')[0],
     time: "09:00",
     slot_type: "business" as "business" | "student" | "both",
+    session_type: "free" as "free" | "paid",
   })
 
   useEffect(() => {
@@ -104,6 +107,7 @@ export function AdminSlots() {
     },
     selectedDays: ["monday", "tuesday", "wednesday", "thursday", "friday"],
     slotType: "business",
+    sessionType: "free",
   })
 
   const handleCreateSlot = async () => {
@@ -117,10 +121,11 @@ export function AdminSlots() {
         .eq('date', newSlot.date)
         .eq('time', newSlot.time)
         .eq('slot_type', newSlot.slot_type)
+        .eq('session_type', newSlot.session_type)
         .single()
 
       if (existingSlot) {
-        alert(`A ${newSlot.slot_type} slot already exists for ${newSlot.date} at ${newSlot.time}!`)
+        alert(`A ${newSlot.slot_type} ${newSlot.session_type} slot already exists for ${newSlot.date} at ${newSlot.time}!`)
         return
       }
 
@@ -132,6 +137,7 @@ export function AdminSlots() {
           time: newSlot.time,
           is_available: true,
           slot_type: newSlot.slot_type,
+          session_type: newSlot.session_type,
         })
         .select()
         .single()
@@ -152,6 +158,7 @@ export function AdminSlots() {
         date: new Date().toISOString().split('T')[0],
         time: "09:00",
         slot_type: "business",
+        session_type: "free",
       })
       setIsCreating(false)
       alert('Slot created successfully!')
@@ -245,6 +252,7 @@ export function AdminSlots() {
                 time: `${hour.toString().padStart(2, "0")}:${min.toString().padStart(2, "0")}`,
                 is_available: true,
                 slot_type: bulkSettings.slotType,
+                session_type: bulkSettings.sessionType,
                 created_at: new Date().toISOString(),
               })
             }
@@ -272,7 +280,7 @@ export function AdminSlots() {
         // Check existing slots
         const { data: existingSlots } = await supabase
           .from('time_slots')
-          .select('date, time, slot_type')
+          .select('date, time, slot_type, session_type')
           .or(slotQueries)
 
         const appointmentConflicts = new Set(
@@ -280,13 +288,13 @@ export function AdminSlots() {
         )
 
         const slotConflicts = new Set(
-          existingSlots?.map(slot => `${slot.date}-${slot.time}-${slot.slot_type}`) || []
+          existingSlots?.map(slot => `${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`) || []
         )
 
         // Mark conflicts in generated slots
         generatedSlots.forEach(slot => {
           const timeKey = `${slot.date}-${slot.time}`
-          const slotKey = `${slot.date}-${slot.time}-${slot.slot_type}`
+          const slotKey = `${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`
 
           if (appointmentConflicts.has(timeKey)) {
             slot.id = `conflict-appointment-${slot.id}`
@@ -321,12 +329,12 @@ export function AdminSlots() {
 
       // Check for existing time slots that would conflict
       const slotCheckQueries = previewSlots.map(slot =>
-        `(date = '${slot.date}' AND time = '${slot.time}' AND slot_type = '${slot.slot_type}')`
+        `(date = '${slot.date}' AND time = '${slot.time}' AND slot_type = '${slot.slot_type}' AND session_type = '${slot.session_type}')`
       ).join(' OR ')
 
       const { data: existingSlots } = await supabase
         .from('time_slots')
-        .select('date, time, slot_type')
+        .select('date, time, slot_type, session_type')
         .or(slotCheckQueries)
 
       // Filter out slots that have confirmed/pending appointments
@@ -336,13 +344,13 @@ export function AdminSlots() {
 
       // Filter out slots that already exist
       const slotConflicts = new Set(
-        existingSlots?.map(slot => `${slot.date}-${slot.time}-${slot.slot_type}`) || []
+        existingSlots?.map(slot => `${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`) || []
       )
 
       const slotsToInsert = previewSlots
         .filter(slot => {
           const appointmentKey = `${slot.date}-${slot.time}`
-          const slotKey = `${slot.date}-${slot.time}-${slot.slot_type}`
+          const slotKey = `${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`
           return !appointmentConflicts.has(appointmentKey) && !slotConflicts.has(slotKey)
         })
         .map(slot => ({
@@ -350,14 +358,15 @@ export function AdminSlots() {
           time: slot.time,
           is_available: true,
           slot_type: slot.slot_type,
+          session_type: slot.session_type,
         }))
 
       if (slotsToInsert.length === 0) {
         const appointmentCount = previewSlots.filter(slot => 
           appointmentConflicts.has(`${slot.date}-${slot.time}`)
         ).length
-        const duplicateCount = previewSlots.filter(slot => 
-          slotConflicts.has(`${slot.date}-${slot.time}-${slot.slot_type}`)
+        const duplicateCount = previewSlots.filter(slot =>
+          slotConflicts.has(`${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`)
         ).length
 
         let message = 'No new slots to create!'
@@ -386,8 +395,8 @@ export function AdminSlots() {
       const appointmentConflictCount = previewSlots.filter(slot => 
         appointmentConflicts.has(`${slot.date}-${slot.time}`)
       ).length
-      const duplicateConflictCount = previewSlots.filter(slot => 
-        slotConflicts.has(`${slot.date}-${slot.time}-${slot.slot_type}`)
+      const duplicateConflictCount = previewSlots.filter(slot =>
+        slotConflicts.has(`${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`)
       ).length
 
       let message = `Successfully created ${data?.length || 0} slots!`
@@ -491,6 +500,9 @@ export function AdminSlots() {
               {slot.is_available ? "Available" : "Unavailable"}
             </Badge>
             <Badge variant="outline">{slot.slot_type}</Badge>
+            <Badge variant={slot.session_type === "paid" ? "default" : "secondary"}>
+              {slot.session_type === "paid" ? "Paid" : "Free"}
+            </Badge>
           </div>
         </CardContent>
       </Card>
@@ -703,26 +715,48 @@ export function AdminSlots() {
             </div>
 
             {/* Slot Type Selection */}
-            <div>
-              <Label>Slot Type</Label>
-              <Select
-                value={bulkSettings.slotType}
-                onValueChange={(value) =>
-                  setBulkSettings((prev) => ({
-                    ...prev,
-                    slotType: value as any,
-                  }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="business">Business</SelectItem>
-                  <SelectItem value="student">Student</SelectItem>
-                  <SelectItem value="both">Both (Business & Student)</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Slot Type</Label>
+                <Select
+                  value={bulkSettings.slotType}
+                  onValueChange={(value) =>
+                    setBulkSettings((prev) => ({
+                      ...prev,
+                      slotType: value as any,
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="business">Business</SelectItem>
+                    <SelectItem value="student">Student</SelectItem>
+                    <SelectItem value="both">Both (Business & Student)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Session Type</Label>
+                <Select
+                  value={bulkSettings.sessionType}
+                  onValueChange={(value) =>
+                    setBulkSettings((prev) => ({
+                      ...prev,
+                      sessionType: value as any,
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="free">Free</SelectItem>
+                    <SelectItem value="paid">Paid</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             {/* Time Window */}
@@ -813,7 +847,12 @@ export function AdminSlots() {
                         </Badge>
                       )}
                     </div>
-                    <Badge variant="outline">{slot.slot_type}</Badge>
+                    <div className="flex gap-2">
+                      <Badge variant="outline">{slot.slot_type}</Badge>
+                      <Badge variant={slot.session_type === "paid" ? "default" : "secondary"} className="text-xs">
+                        {slot.session_type === "paid" ? "Paid" : "Free"}
+                      </Badge>
+                    </div>
                   </div>
                 )
               })}
@@ -886,7 +925,7 @@ export function AdminSlots() {
             <CardTitle>Create New Slot</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Date</Label>
                 <Input
@@ -916,6 +955,21 @@ export function AdminSlots() {
                     <SelectItem value="business">Business</SelectItem>
                     <SelectItem value="student">Student</SelectItem>
                     <SelectItem value="both">Both</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Session Type</Label>
+                <Select
+                  value={newSlot.session_type}
+                  onValueChange={(value) => setNewSlot({ ...newSlot, session_type: value as any })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="free">Free</SelectItem>
+                    <SelectItem value="paid">Paid</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
