@@ -10,6 +10,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { CheckCircle, XCircle, Clock, MessageSquare, User, Video, MapPin, RefreshCw } from "lucide-react"
 import type { MeetingType } from "@/lib/types/database"
+import { useOffline } from "@/hooks/use-offline"
+import { OfflineStatus, ErrorBanner } from "@/components/ui/offline-status"
+import { useToast } from "@/hooks/use-toast"
 
 
 interface Appointment {
@@ -36,6 +39,17 @@ export function AdminRequests() {
   const [selectedRequest, setSelectedRequest] = useState<string | null>(null)
   const [responseNote, setResponseNote] = useState("")
   const [loading, setLoading] = useState(true)
+  const { toast } = useToast()
+
+  const {
+    isOnline,
+    error,
+    lastUpdated,
+    isRefreshing,
+    setLastUpdated,
+    setIsRefreshing,
+    executeWithOfflineCheck
+  } = useOffline({ autoRefresh: true, refreshInterval: 30000 })
 
   // Meeting details for approval
   const [meetingDetails, setMeetingDetails] = useState({
@@ -46,31 +60,43 @@ export function AdminRequests() {
   })
 
   useEffect(() => {
-    fetchPendingAppointments()
+    executeWithOfflineCheck(fetchPendingAppointments)
+
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(() => {
+      if (navigator.onLine) {
+        executeWithOfflineCheck(fetchPendingAppointments)
+      }
+    }, 30000)
+
+    return () => clearInterval(interval)
   }, [])
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true)
+    await executeWithOfflineCheck(fetchPendingAppointments)
+    setIsRefreshing(false)
+  }
 
   const fetchPendingAppointments = async () => {
     setLoading(true)
-    try {
-      const { supabase } = await import("@/lib/supabase")
 
-      const { data, error } = await supabase
-        .from('appointments')
-        .select('*')
-        .eq('status', 'pending')
-        .order('created_at', { ascending: false })
+    const { supabase } = await import("@/lib/supabase")
 
-      if (error) {
-        console.error('Error fetching requests:', error)
-        return
-      }
+    const { data, error } = await supabase
+      .from('appointments')
+      .select('*')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
 
-      setRequests(data || [])
-    } catch (error) {
-      console.error('Error:', error)
-    } finally {
-      setLoading(false)
+    if (error) {
+      console.error('Error fetching requests:', error)
+      return
     }
+
+    setRequests(data || [])
+    setLastUpdated(new Date())
+    setLoading(false)
   }
 
   const handleApprove = async (requestId: string) => {
@@ -104,10 +130,18 @@ export function AdminRequests() {
         venue_address: '',
         meeting_notes: ''
       })
-      alert('Request approved and meeting details saved!')
+      toast({
+        title: "Success",
+        description: "Request approved and meeting details saved!",
+        variant: "default"
+      })
     } catch (error) {
       console.error('Error:', error)
-      alert('Failed to approve request')
+      toast({
+        title: "Error",
+        description: "Failed to approve request",
+        variant: "destructive"
+      })
     }
   }
 
@@ -180,10 +214,21 @@ export function AdminRequests() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="heading-font text-3xl font-bold text-foreground mb-2">Requests Queue</h1>
-        <p className="text-muted-foreground">Review and manage free session requests</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="heading-font text-3xl font-bold text-foreground mb-2">Requests Queue</h1>
+          <p className="text-muted-foreground">Review and manage free session requests</p>
+        </div>
+        <OfflineStatus
+          isOnline={isOnline}
+          error={error}
+          lastUpdated={lastUpdated}
+          isRefreshing={isRefreshing}
+          onRefresh={handleManualRefresh}
+        />
       </div>
+
+      <ErrorBanner error={error} />
 
       <div className="grid gap-6">
         {pendingRequests.length === 0 ? (

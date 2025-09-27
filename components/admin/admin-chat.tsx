@@ -10,6 +10,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { MessageSquare, Send, User, Clock, Check, CheckCheck, RefreshCw, Mail, Phone } from "lucide-react"
 import { fetchInstantMessages, updateInstantMessage, markMessageAsRead, subscribeToMessages } from "@/lib/message-utils"
 import type { InstantMessage } from "@/lib/types/database"
+import { useOffline } from "@/hooks/use-offline"
+import { OfflineStatus, ErrorBanner } from "@/components/ui/offline-status"
 
 const quickReplies = [
   "Thank you for your message! I'll get back to you shortly.",
@@ -25,20 +27,38 @@ export function AdminChat() {
   const [replyText, setReplyText] = useState("")
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  const {
+    isOnline,
+    error,
+    lastUpdated,
+    isRefreshing,
+    setLastUpdated,
+    setIsRefreshing,
+    executeWithOfflineCheck
+  } = useOffline({ autoRefresh: true, refreshInterval: 30000 })
 
   const selectedMessage = messages.find(msg => msg.id === selectedMessageId)
 
   // Load messages on component mount
   useEffect(() => {
-    loadMessages()
+    executeWithOfflineCheck(loadMessages)
+
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(() => {
+      if (navigator.onLine) {
+        executeWithOfflineCheck(loadMessages)
+      }
+    }, 30000)
+
+    return () => clearInterval(interval)
   }, [])
 
   // Set up real-time subscription
   useEffect(() => {
     const subscription = subscribeToMessages((payload) => {
       console.log('Real-time message update:', payload)
-      loadMessages() // Reload all messages when there's an update
+      executeWithOfflineCheck(loadMessages) // Reload all messages when there's an update
     })
 
     return () => {
@@ -46,29 +66,27 @@ export function AdminChat() {
     }
   }, [])
 
-  const loadMessages = async () => {
-    setIsLoading(true)
-    try {
-      const result = await fetchInstantMessages()
-      if (result.success) {
-        setMessages(result.data)
-        // Auto-select first message if none selected
-        if (!selectedMessageId && result.data.length > 0) {
-          setSelectedMessageId(result.data[0].id)
-        }
-      }
-    } catch (error) {
-      console.error("Error loading messages:", error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const handleRefresh = async () => {
+  const handleManualRefresh = async () => {
     setIsRefreshing(true)
-    await loadMessages()
+    await executeWithOfflineCheck(loadMessages)
     setIsRefreshing(false)
   }
+
+  const loadMessages = async () => {
+    setIsLoading(true)
+
+    const result = await fetchInstantMessages()
+    if (result.success) {
+      setMessages(result.data)
+      // Auto-select first message if none selected
+      if (!selectedMessageId && result.data.length > 0) {
+        setSelectedMessageId(result.data[0].id)
+      }
+    }
+    setLastUpdated(new Date())
+    setIsLoading(false)
+  }
+
 
   const handleMessageSelect = async (messageId: string) => {
     setSelectedMessageId(messageId)
@@ -179,16 +197,16 @@ export function AdminChat() {
             <p className="text-sm text-slate-600">Manage instant messages from visitors</p>
           </div>
         </div>
-        <Button
-          onClick={handleRefresh}
-          variant="outline"
-          size="sm"
-          disabled={isRefreshing}
-        >
-          <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <OfflineStatus
+          isOnline={isOnline}
+          error={error}
+          lastUpdated={lastUpdated}
+          isRefreshing={isRefreshing}
+          onRefresh={handleManualRefresh}
+        />
       </div>
+
+      <ErrorBanner error={error} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[600px]">
         {/* Messages List */}

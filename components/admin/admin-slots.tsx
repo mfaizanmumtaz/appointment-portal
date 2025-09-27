@@ -12,6 +12,19 @@ import { Switch } from "@/components/ui/switch"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Textarea } from "@/components/ui/textarea"
 import { Calendar, Clock, DollarSign, Users, Plus, Edit, Trash2, CalendarDays, Eye, AlertTriangle, RefreshCw } from "lucide-react"
+import { useOffline } from "@/hooks/use-offline"
+import { OfflineStatus, ErrorBanner } from "@/components/ui/offline-status"
+import { useToast } from "@/hooks/use-toast"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 interface TimeSlot {
   id: string
@@ -53,6 +66,18 @@ export function AdminSlots() {
   const [loading, setLoading] = useState(true)
   const [isCreating, setIsCreating] = useState(false)
   const [isBulkCreating, setIsBulkCreating] = useState(false)
+  const { toast } = useToast()
+  const [deleteConfirm, setDeleteConfirm] = useState<{isOpen: boolean, slotId?: string, count?: number, type: 'single' | 'bulk'}>({isOpen: false, type: 'single'})
+
+  const {
+    isOnline,
+    error,
+    lastUpdated,
+    isRefreshing,
+    setLastUpdated,
+    setIsRefreshing,
+    executeWithOfflineCheck
+  } = useOffline({ autoRefresh: true, refreshInterval: 30000 })
   const [showPreview, setShowPreview] = useState(false)
   const [selectedSlots, setSelectedSlots] = useState<string[]>([])
   const [previewSlots, setPreviewSlots] = useState<TimeSlot[]>([])
@@ -74,31 +99,43 @@ export function AdminSlots() {
   }
 
   useEffect(() => {
-    fetchSlots()
+    executeWithOfflineCheck(fetchSlots)
+
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(() => {
+      if (navigator.onLine) {
+        executeWithOfflineCheck(fetchSlots)
+      }
+    }, 30000)
+
+    return () => clearInterval(interval)
   }, [])
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true)
+    await executeWithOfflineCheck(fetchSlots)
+    setIsRefreshing(false)
+  }
 
   const fetchSlots = async () => {
     setLoading(true)
-    try {
-      const { supabase } = await import("@/lib/supabase")
 
-      const { data, error } = await supabase
-        .from('time_slots')
-        .select('*')
-        .order('date', { ascending: true })
-        .order('time', { ascending: true })
+    const { supabase } = await import("@/lib/supabase")
 
-      if (error) {
-        console.error('Error fetching slots:', error)
-        return
-      }
+    const { data, error } = await supabase
+      .from('time_slots')
+      .select('*')
+      .order('date', { ascending: true })
+      .order('time', { ascending: true })
 
-      setSlots(data || [])
-    } catch (error) {
-      console.error('Error:', error)
-    } finally {
-      setLoading(false)
+    if (error) {
+      console.error('Error fetching slots:', error)
+      return
     }
+
+    setSlots(data || [])
+    setLastUpdated(new Date())
+    setLoading(false)
   }
 
   const today = new Date()
@@ -129,13 +166,18 @@ export function AdminSlots() {
   }
 
   const handleCreateSlot = async () => {
+    console.log('handleCreateSlot called with:', newSlot)
     try {
       // Validate that slot is not in the past
       const now = new Date()
       const slotDateTime = new Date(`${newSlot.date}T${newSlot.time}`)
 
       if (slotDateTime <= now) {
-        alert('Cannot create slots in the past. Please select a future date and time.')
+        toast({
+          title: "Invalid Time",
+          description: "Cannot create slots in the past. Please select a future date and time.",
+          variant: "destructive"
+        })
         return
       }
 
@@ -152,7 +194,11 @@ export function AdminSlots() {
         .single()
 
       if (existingSlot) {
-        alert(`A ${newSlot.slot_type} ${newSlot.session_type} slot already exists for ${newSlot.date} at ${newSlot.time}!`)
+        toast({
+          title: "Slot Already Exists",
+          description: `A ${newSlot.slot_type} ${newSlot.session_type} slot already exists for ${newSlot.date} at ${newSlot.time}!`,
+          variant: "destructive"
+        })
         return
       }
 
@@ -172,9 +218,17 @@ export function AdminSlots() {
       if (error) {
         console.error('Error creating slot:', error)
         if (error.message.includes('duplicate key value')) {
-          alert('A slot with this date, time, and type already exists!')
+          toast({
+            title: "Duplicate Slot",
+            description: "A slot with this date, time, and type already exists!",
+            variant: "destructive"
+          })
         } else {
-          alert(`Error: ${error.message}`)
+          toast({
+            title: "Error Creating Slot",
+            description: error.message,
+            variant: "destructive"
+          })
         }
         return
       }
@@ -188,15 +242,30 @@ export function AdminSlots() {
         session_type: "free",
       })
       setIsCreating(false)
-      alert('Slot created successfully!')
+      toast({
+        title: "Success",
+        description: "Slot created successfully!",
+        variant: "default"
+      })
     } catch (error) {
       console.error('Error:', error)
-      alert('Failed to create slot')
+      toast({
+        title: "Error",
+        description: "Failed to create slot",
+        variant: "destructive"
+      })
     }
   }
 
   const handleDeleteSlot = async (id: string) => {
-    if (!confirm('Delete this slot? WARNING: This will also cancel any related appointments automatically.')) return
+    setDeleteConfirm({isOpen: true, slotId: id, type: 'single'})
+  }
+
+  const confirmDeleteSlot = async () => {
+    const id = deleteConfirm.slotId
+    if (!id) return
+
+    setDeleteConfirm({isOpen: false, type: 'single'})
 
     try {
       const { supabase } = await import("@/lib/supabase")
@@ -208,15 +277,27 @@ export function AdminSlots() {
 
       if (error) {
         console.error('Error deleting slot:', error)
-        alert(`Error: ${error.message}`)
+        toast({
+          title: "Error Deleting Slot",
+          description: error.message,
+          variant: "destructive"
+        })
         return
       }
 
       setSlots(slots.filter((slot) => slot.id !== id))
-      alert('Slot deleted successfully!')
+      toast({
+        title: "Success",
+        description: "Slot deleted successfully!",
+        variant: "default"
+      })
     } catch (error) {
       console.error('Error:', error)
-      alert('Failed to delete slot')
+      toast({
+        title: "Error",
+        description: "Failed to delete slot",
+        variant: "destructive"
+      })
     }
   }
 
@@ -239,12 +320,20 @@ export function AdminSlots() {
       const endDate = new Date(bulkSettings.dateRange.end)
 
       if (startDate > endDate) {
-        alert("Invalid date range: start date must be before end date")
+        toast({
+          title: "Invalid Date Range",
+          description: "Start date must be before end date",
+          variant: "destructive"
+        })
         return
       }
 
       if (bulkSettings.selectedDays.length === 0) {
-        alert("Please select at least one day")
+        toast({
+          title: "No Days Selected",
+          description: "Please select at least one day",
+          variant: "destructive"
+        })
         return
       }
 
@@ -339,11 +428,19 @@ export function AdminSlots() {
 
       if (futureSlots.length < generatedSlots.length) {
         const pastCount = generatedSlots.length - futureSlots.length
-        alert(`Filtered out ${pastCount} slots that would be in the past. Showing ${futureSlots.length} future slots.`)
+        toast({
+          title: "Past Slots Filtered",
+          description: `Filtered out ${pastCount} slots that would be in the past. Showing ${futureSlots.length} future slots.`,
+          variant: "default"
+        })
       }
     } catch (error) {
       console.error("Error generating bulk slots:", error)
-      alert("Error generating slots. Please check your settings and try again.")
+      toast({
+        title: "Error Generating Slots",
+        description: "Please check your settings and try again.",
+        variant: "destructive"
+      })
     }
   }
 
@@ -411,7 +508,11 @@ export function AdminSlots() {
         if (duplicateCount > 0) {
           message += ` ${duplicateCount} slots already exist.`
         }
-        alert(message)
+        toast({
+          title: "No Slots to Create",
+          description: message,
+          variant: "destructive"
+        })
         return
       }
 
@@ -423,7 +524,11 @@ export function AdminSlots() {
 
       if (error) {
         console.error('Error creating bulk slots:', error)
-        alert(`Error: ${error.message}`)
+        toast({
+          title: "Error Creating Bulk Slots",
+          description: error.message,
+          variant: "destructive"
+        })
         return
       }
 
@@ -447,18 +552,30 @@ export function AdminSlots() {
       setPreviewSlots([])
       setShowPreview(false)
       setIsBulkCreating(false)
-      alert(message)
+      toast({
+        title: "Bulk Creation Successful",
+        description: message,
+        variant: "default"
+      })
 
       // Refresh slots to get current state
       fetchSlots()
     } catch (error) {
       console.error('Error:', error)
-      alert('Failed to create bulk slots')
+      toast({
+        title: "Error",
+        description: "Failed to create bulk slots",
+        variant: "destructive"
+      })
     }
   }
 
   const bulkDeleteSelected = async () => {
-    if (!confirm(`Delete ${selectedSlots.length} selected slots? WARNING: This will also cancel any related appointments automatically.`)) return
+    setDeleteConfirm({isOpen: true, count: selectedSlots.length, type: 'bulk'})
+  }
+
+  const confirmBulkDelete = async () => {
+    setDeleteConfirm({isOpen: false, type: 'bulk'})
 
     try {
       const { supabase } = await import("@/lib/supabase")
@@ -470,16 +587,29 @@ export function AdminSlots() {
 
       if (error) {
         console.error('Error bulk deleting slots:', error)
-        alert(`Error: ${error.message}`)
+        toast({
+          title: "Error Deleting Slots",
+          description: error.message,
+          variant: "destructive"
+        })
         return
       }
 
+      const deletedCount = selectedSlots.length
       setSlots(slots.filter((slot) => !selectedSlots.includes(slot.id)))
       setSelectedSlots([])
-      alert(`Successfully deleted ${selectedSlots.length} slots!`)
+      toast({
+        title: "Success",
+        description: `Successfully deleted ${deletedCount} slots!`,
+        variant: "default"
+      })
     } catch (error) {
       console.error('Error:', error)
-      alert('Failed to delete slots')
+      toast({
+        title: "Error",
+        description: "Failed to delete slots",
+        variant: "destructive"
+      })
     }
   }
 
@@ -506,7 +636,6 @@ export function AdminSlots() {
       console.error("[v0] Error clearing selection:", error)
     }
   }
-
 
   const SlotCard = ({ slot }: { slot: TimeSlot }) => {
     return (
@@ -574,10 +703,14 @@ export function AdminSlots() {
               </Button>
             </>
           )}
-          <Button onClick={fetchSlots} variant="outline" size="sm">
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Refresh
-          </Button>
+          <OfflineStatus
+            isOnline={isOnline}
+            error={error}
+            lastUpdated={lastUpdated}
+            isRefreshing={isRefreshing}
+            onRefresh={handleManualRefresh}
+            showRefreshButton={true}
+          />
           <Button onClick={() => setIsBulkCreating(true)} className="btn-primary">
             <CalendarDays className="w-4 h-4 mr-2" />
             Bulk Create
@@ -588,6 +721,8 @@ export function AdminSlots() {
           </Button>
         </div>
       </div>
+
+      <ErrorBanner error={error} />
 
       {isBulkCreating && (
         <Card className="card-calm">
@@ -1081,6 +1216,33 @@ export function AdminSlots() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteConfirm.isOpen} onOpenChange={(open) => setDeleteConfirm({...deleteConfirm, isOpen: open})}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {deleteConfirm.type === 'single' ? 'Delete Slot' : 'Delete Multiple Slots'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteConfirm.type === 'single'
+                ? 'Delete this slot? WARNING: This will also cancel any related appointments automatically.'
+                : `Delete ${deleteConfirm.count} selected slots? WARNING: This will also cancel any related appointments automatically.`
+              }
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={deleteConfirm.type === 'single' ? confirmDeleteSlot : confirmBulkDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

@@ -10,6 +10,17 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Upload, Trash2, Edit3, Eye, ImageIcon, Plus, X, Check, Move, RefreshCw } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
+import { useToast } from "@/hooks/use-toast"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 interface GalleryImage {
   id: string
@@ -28,6 +39,8 @@ export function AdminGallery() {
   const [selectedImages, setSelectedImages] = useState<string[]>([])
   const [editingImage, setEditingImage] = useState<GalleryImage | null>(null)
   const [showUploadModal, setShowUploadModal] = useState(false)
+  const { toast } = useToast()
+  const [deleteConfirm, setDeleteConfirm] = useState<{isOpen: boolean, imageId?: string, count?: number, type: 'single' | 'bulk'}>({isOpen: false, type: 'single'})
   const [draggedImage, setDraggedImage] = useState<string | null>(null)
   const [uploadProgress, setUploadProgress] = useState<number>(0)
   const [isUploading, setIsUploading] = useState(false)
@@ -174,17 +187,36 @@ export function AdminGallery() {
   }
 
   const handleDeleteSelected = () => {
-    if (confirm(`Delete ${selectedImages.length} selected image(s)?`)) {
-      setImages((prev) => prev.filter((img) => !selectedImages.includes(img.id)))
-      setSelectedImages([])
-    }
+    setDeleteConfirm({isOpen: true, count: selectedImages.length, type: 'bulk'})
+  }
+
+  const confirmBulkDelete = () => {
+    setImages((prev) => prev.filter((img) => !selectedImages.includes(img.id)))
+    setSelectedImages([])
+    setDeleteConfirm({isOpen: false, type: 'bulk'})
+    toast({
+      title: "Success",
+      description: `Successfully deleted ${deleteConfirm.count} image(s)!`,
+      variant: "default"
+    })
   }
 
   const handleDeleteImage = (imageId: string) => {
-    if (confirm("Delete this image?")) {
-      setImages((prev) => prev.filter((img) => img.id !== imageId))
-      setSelectedImages((prev) => prev.filter((id) => id !== imageId))
-    }
+    setDeleteConfirm({isOpen: true, imageId, type: 'single'})
+  }
+
+  const confirmDeleteImage = () => {
+    const imageId = deleteConfirm.imageId
+    if (!imageId) return
+
+    setImages((prev) => prev.filter((img) => img.id !== imageId))
+    setSelectedImages((prev) => prev.filter((id) => id !== imageId))
+    setDeleteConfirm({isOpen: false, type: 'single'})
+    toast({
+      title: "Success",
+      description: "Image deleted successfully!",
+      variant: "default"
+    })
   }
 
   const handleEditImage = (image: GalleryImage) => {
@@ -550,6 +582,32 @@ export function AdminGallery() {
           </Card>
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteConfirm.isOpen} onOpenChange={(open) => setDeleteConfirm({...deleteConfirm, isOpen: open})}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {deleteConfirm.type === 'single' ? 'Delete Image' : 'Delete Multiple Images'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteConfirm.type === 'single'
+                ? 'Are you sure you want to delete this image? This action cannot be undone.'
+                : `Are you sure you want to delete ${deleteConfirm.count} selected images? This action cannot be undone.`
+              }
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={deleteConfirm.type === 'single' ? confirmDeleteImage : confirmBulkDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Calendar, Clock, User, DollarSign, Video, MapPin, RefreshCw } from "lucide-react"
+import { useOffline } from "@/hooks/use-offline"
+import { OfflineStatus, ErrorBanner } from "@/components/ui/offline-status"
 
 
 interface Appointment {
@@ -26,14 +28,25 @@ export function AdminCalendar() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [loading, setLoading] = useState(true)
-  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  const {
+    isOnline,
+    error,
+    lastUpdated,
+    isRefreshing,
+    setLastUpdated,
+    setIsRefreshing,
+    executeWithOfflineCheck
+  } = useOffline({ autoRefresh: true, refreshInterval: 30000 })
 
   useEffect(() => {
-    fetchAppointments()
-    
+    executeWithOfflineCheck(fetchAppointments)
+
     // Auto-refresh every 30 seconds
     const interval = setInterval(() => {
-      fetchAppointments()
+      if (navigator.onLine) {
+        executeWithOfflineCheck(fetchAppointments)
+      }
     }, 30000)
 
     return () => clearInterval(interval)
@@ -41,33 +54,30 @@ export function AdminCalendar() {
 
   const handleManualRefresh = async () => {
     setIsRefreshing(true)
-    await fetchAppointments()
+    await executeWithOfflineCheck(fetchAppointments)
     setIsRefreshing(false)
   }
 
   const fetchAppointments = async () => {
     setLoading(true)
-    try {
-      const { supabase } = await import("@/lib/supabase")
 
-      const { data, error } = await supabase
-        .from('appointments')
-        .select('*')
-        .in('status', ['confirmed', 'pending'])
-        .order('date', { ascending: true })
-        .order('time', { ascending: true })
+    const { supabase } = await import("@/lib/supabase")
 
-      if (error) {
-        console.error('Error fetching appointments:', error)
-        return
-      }
+    const { data, error } = await supabase
+      .from('appointments')
+      .select('*')
+      .in('status', ['confirmed', 'pending'])
+      .order('date', { ascending: true })
+      .order('time', { ascending: true })
 
-      setAppointments(data || [])
-    } catch (error) {
-      console.error('Error:', error)
-    } finally {
-      setLoading(false)
+    if (error) {
+      console.error('Error fetching appointments:', error)
+      return
     }
+
+    setAppointments(data || [])
+    setLastUpdated(new Date())
+    setLoading(false)
   }
 
   const getAppointmentsByType = (type: "paid" | "free") => {
@@ -118,16 +128,16 @@ export function AdminCalendar() {
           <h1 className="heading-font text-3xl font-bold text-foreground mb-2">Calendar</h1>
           <p className="text-muted-foreground">Manage your appointments and schedule</p>
         </div>
-        <Button
-          onClick={handleManualRefresh}
-          variant="outline"
-          size="sm"
-          disabled={isRefreshing}
-        >
-          <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <OfflineStatus
+          isOnline={isOnline}
+          error={error}
+          lastUpdated={lastUpdated}
+          isRefreshing={isRefreshing}
+          onRefresh={handleManualRefresh}
+        />
       </div>
+
+      <ErrorBanner error={error} />
 
       <Tabs defaultValue="paid" className="space-y-6">
         <TabsList className="grid w-full grid-cols-2">

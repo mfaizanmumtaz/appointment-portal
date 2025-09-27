@@ -111,7 +111,9 @@ export default function StudentPage() {
           if (decision === "declined") {
             setStep("declined")
           } else if (decision === "approved") {
-            setStep("calendar")
+            // AI approved - create pending appointment for CEO review
+            await createPendingAppointment()
+            setStep("success")
           } else if (decision === "uncertain") {
             // For uncertain cases, show a special message but allow calendar access
             // Admin can review manually later
@@ -136,6 +138,37 @@ export default function StudentPage() {
     }
   }
 
+
+  const createPendingAppointment = async () => {
+    const { supabase } = await import("@/lib/supabase")
+
+    const appointmentData = {
+      type: 'student' as const,
+      session_type: 'free' as const,
+      name: formData.firstName,
+      email: formData.email,
+      phone: formData.phone,
+      company: null,
+      date: null, // No date selected yet - will be assigned by CEO
+      time: null, // No time selected yet - will be assigned by CEO
+      slot_id: null, // No slot selected yet
+      status: 'pending' as const, // Pending CEO approval
+      purpose: formData.purpose,
+      meeting_type: 'online' as const,
+      meeting_url: null,
+      venue_address: null,
+      meeting_notes: `AI-approved free student session. AI Decision: ${triageResult}. AI Reasoning: ${triageReasoning}`
+    }
+
+    const { error: appointmentError } = await supabase
+      .from('appointments')
+      .insert(appointmentData)
+
+    if (appointmentError) {
+      console.error('Error creating pending appointment:', appointmentError)
+      throw new Error('Failed to create appointment')
+    }
+  }
 
   const handleSlotSelect = async (slot: any) => {
     setSelectedSlot(slot)

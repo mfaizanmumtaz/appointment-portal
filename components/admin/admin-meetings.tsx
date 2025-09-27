@@ -27,14 +27,27 @@ import {
   RefreshCw
 } from "lucide-react"
 import type { Appointment, MeetingType } from "@/lib/types/database"
+import { useOffline } from "@/hooks/use-offline"
+import { OfflineStatus, ErrorBanner } from "@/components/ui/offline-status"
+import { useToast } from "@/hooks/use-toast"
 
 export function AdminMeetings() {
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null)
   const [editingMeeting, setEditingMeeting] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [isRefreshing, setIsRefreshing] = useState(false)
   const [filter, setFilter] = useState<'all' | 'confirmed' | 'pending' | 'completed'>('all')
+  const { toast } = useToast()
+
+  const {
+    isOnline,
+    error,
+    lastUpdated,
+    isRefreshing,
+    setLastUpdated,
+    setIsRefreshing,
+    executeWithOfflineCheck
+  } = useOffline({ autoRefresh: true, refreshInterval: 30000 })
 
   // Form state for editing meeting details
   const [meetingForm, setMeetingForm] = useState({
@@ -45,11 +58,13 @@ export function AdminMeetings() {
   })
 
   useEffect(() => {
-    fetchAppointments()
+    executeWithOfflineCheck(fetchAppointments)
 
-    // Refresh data every 30 seconds
+    // Auto-refresh every 30 seconds
     const interval = setInterval(() => {
-      fetchAppointments()
+      if (navigator.onLine) {
+        executeWithOfflineCheck(fetchAppointments)
+      }
     }, 30000)
 
     return () => clearInterval(interval)
@@ -57,32 +72,29 @@ export function AdminMeetings() {
 
   const handleManualRefresh = async () => {
     setIsRefreshing(true)
-    await fetchAppointments()
+    await executeWithOfflineCheck(fetchAppointments)
     setIsRefreshing(false)
   }
 
   const fetchAppointments = async () => {
     setLoading(true)
-    try {
-      const { supabase } = await import("@/lib/supabase")
 
-      const { data, error } = await supabase
-        .from('appointments')
-        .select('*')
-        .order('date', { ascending: true })
-        .order('time', { ascending: true })
+    const { supabase } = await import("@/lib/supabase")
 
-      if (error) {
-        console.error('Error fetching appointments:', error)
-        return
-      }
+    const { data, error } = await supabase
+      .from('appointments')
+      .select('*')
+      .order('date', { ascending: true })
+      .order('time', { ascending: true })
 
-      setAppointments(data || [])
-    } catch (error) {
-      console.error('Error:', error)
-    } finally {
-      setLoading(false)
+    if (error) {
+      console.error('Error fetching appointments:', error)
+      return
     }
+
+    setAppointments(data || [])
+    setLastUpdated(new Date())
+    setLoading(false)
   }
 
   const handleUpdateMeeting = async (appointmentId: string) => {
@@ -103,7 +115,11 @@ export function AdminMeetings() {
 
       if (error) {
         console.error('Error updating meeting:', error)
-        alert(`Error: ${error.message}`)
+        toast({
+          title: "Error Updating Meeting",
+          description: error.message,
+          variant: "destructive"
+        })
         return
       }
 
@@ -117,10 +133,18 @@ export function AdminMeetings() {
       )
 
       setEditingMeeting(null)
-      alert('Meeting details updated successfully!')
+      toast({
+        title: "Success",
+        description: "Meeting details updated successfully!",
+        variant: "default"
+      })
     } catch (error) {
       console.error('Error:', error)
-      alert('Failed to update meeting details')
+      toast({
+        title: "Error",
+        description: "Failed to update meeting details",
+        variant: "destructive"
+      })
     }
   }
 
@@ -200,16 +224,16 @@ export function AdminMeetings() {
           <h1 className="heading-font text-3xl font-bold text-foreground mb-2">Meeting Management</h1>
           <p className="text-muted-foreground">Manage Zoom links, venues, and meeting details</p>
         </div>
-        <Button
-          onClick={handleManualRefresh}
-          variant="outline"
-          size="sm"
-          disabled={isRefreshing}
-        >
-          <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <OfflineStatus
+          isOnline={isOnline}
+          error={error}
+          lastUpdated={lastUpdated}
+          isRefreshing={isRefreshing}
+          onRefresh={handleManualRefresh}
+        />
       </div>
+
+      <ErrorBanner error={error} />
 
       {/* Quick Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

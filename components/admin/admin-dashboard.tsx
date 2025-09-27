@@ -4,10 +4,12 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts"
-import { Calendar, DollarSign, Users, MessageSquare, TrendingUp, RefreshCw } from "lucide-react"
+import { Calendar, DollarSign, Users, MessageSquare, TrendingUp, RefreshCw, ArrowUp, ArrowDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Appointment, TimeSlot } from "@/lib/types/database"
+import { Appointment, TimeSlot, StudentTriageLog } from "@/lib/types/database"
+import { useOffline } from "@/hooks/use-offline"
+import { OfflineStatus, ErrorBanner } from "@/components/ui/offline-status"
 
 
 export function AdminDashboard() {
@@ -27,17 +29,36 @@ export function AdminDashboard() {
     freeAvailable: 0,
     bookedSlots: 0,
     pendingAppointments: 0,
+    weeklyRevenue: 0,
+    previousWeekRevenue: 0,
+    revenueGrowth: 0,
+    aiApprovalRate: 0,
+    showRate: 0,
+    weeklyPaid: 0,
+    weeklyFree: 0,
   })
   const [weeklyData, setWeeklyData] = useState<Array<{ day: string; paid: number; free: number }>>([])
   const [loading, setLoading] = useState(true)
-  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  const {
+    isOnline,
+    error,
+    lastUpdated,
+    isRefreshing,
+    setError,
+    setLastUpdated,
+    setIsRefreshing,
+    executeWithOfflineCheck
+  } = useOffline({ autoRefresh: true, refreshInterval: 30000 })
 
   useEffect(() => {
-    fetchDashboardData()
+    executeWithOfflineCheck(fetchDashboardData)
 
-    // Refresh data every 30 seconds to keep it current
+    // Set up auto-refresh
     const interval = setInterval(() => {
-      fetchDashboardData()
+      if (navigator.onLine) {
+        executeWithOfflineCheck(fetchDashboardData)
+      }
     }, 30000)
 
     return () => clearInterval(interval)
@@ -45,14 +66,14 @@ export function AdminDashboard() {
 
   const handleManualRefresh = async () => {
     setIsRefreshing(true)
-    await fetchDashboardData()
+    await executeWithOfflineCheck(fetchDashboardData)
     setIsRefreshing(false)
   }
 
   const fetchDashboardData = async () => {
     setLoading(true)
-    try {
-      const { supabase } = await import("@/lib/supabase")
+
+    const { supabase } = await import("@/lib/supabase")
 
       const today = new Date()
       const todayStr = today.toISOString().split('T')[0]
@@ -62,6 +83,12 @@ export function AdminDashboard() {
       weekEnd.setDate(weekStart.getDate() + 6)
       const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
       const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0)
+
+      // Previous week dates for comparison
+      const prevWeekStart = new Date(weekStart)
+      prevWeekStart.setDate(weekStart.getDate() - 7)
+      const prevWeekEnd = new Date(weekEnd)
+      prevWeekEnd.setDate(weekEnd.getDate() - 7)
 
       // Get ALL appointments from database
       const { data: allAppointments, error: allError } = await supabase
@@ -83,6 +110,26 @@ export function AdminDashboard() {
       if (weekError) {
         console.error('Error fetching week appointments:', weekError)
         return
+      }
+
+      // Get previous week's appointments for comparison
+      const { data: prevWeekAppointments, error: prevWeekError } = await supabase
+        .from('appointments')
+        .select('*')
+        .gte('date', prevWeekStart.toISOString().split('T')[0])
+        .lte('date', prevWeekEnd.toISOString().split('T')[0]) as { data: Appointment[] | null; error: any }
+
+      if (prevWeekError) {
+        console.error('Error fetching previous week appointments:', prevWeekError)
+      }
+
+      // Get student triage data for AI approval rate
+      const { data: triageData, error: triageError } = await supabase
+        .from('student_triage_log')
+        .select('*') as { data: StudentTriageLog[] | null; error: any }
+
+      if (triageError) {
+        console.error('Error fetching triage data:', triageError)
       }
 
       // Get upcoming appointments (from today onwards)
@@ -149,6 +196,27 @@ export function AdminDashboard() {
       const weekPaidAppts = weekAppointments?.filter(a => a.session_type === 'paid') || []
       const weekFreeAppts = weekAppointments?.filter(a => a.session_type === 'free') || []
 
+      // Previous week calculations
+      const prevWeekPaidAppts = prevWeekAppointments?.filter(a => a.session_type === 'paid') || []
+      const weeklyRevenue = weekPaidAppts.length * 150
+      const previousWeekRevenue = prevWeekPaidAppts.length * 150
+      const revenueGrowth = previousWeekRevenue > 0
+        ? Math.round(((weeklyRevenue - previousWeekRevenue) / previousWeekRevenue) * 100)
+        : weeklyRevenue > 0 ? 100 : 0
+
+      // AI Approval Rate calculation (from student triage data)
+      const freeSessionTriages = triageData?.filter(t => t.ai_decision === 'approved') || []
+      const totalTriages = triageData?.length || 0
+      const aiApprovalRate = totalTriages > 0 ? Math.round((freeSessionTriages.length / totalTriages) * 100) : 0
+
+      // Show Rate calculation (completed vs total non-cancelled appointments)
+      const confirmedAppointments = allAppointments?.filter(a => a.status === 'confirmed') || []
+      const completedAppointments = allAppointments?.filter(a => a.status === 'completed') || []
+      const totalScheduledAppointments = confirmedAppointments.length + completedAppointments.length
+      const showRate = totalScheduledAppointments > 0
+        ? Math.round((completedAppointments.length / totalScheduledAppointments) * 100)
+        : 0
+
       // Calculate status indicator counts
       const availableSlots = allSlots?.filter(s => s.is_available) || []
       const bookedSlots = allSlots?.filter(s => !s.is_available) || []
@@ -174,6 +242,13 @@ export function AdminDashboard() {
         freeAvailable,
         bookedSlots: bookedSlots.length,
         pendingAppointments,
+        weeklyRevenue,
+        previousWeekRevenue,
+        revenueGrowth,
+        aiApprovalRate,
+        showRate,
+        weeklyPaid: weekPaidAppts.length,
+        weeklyFree: weekFreeAppts.length,
       })
 
       const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -190,11 +265,8 @@ export function AdminDashboard() {
       })
 
       setWeeklyData(dailyData)
-    } catch (error) {
-      console.error('Error:', error)
-    } finally {
+      setLastUpdated(new Date())
       setLoading(false)
-    }
   }
 
   if (loading) {
@@ -215,77 +287,90 @@ export function AdminDashboard() {
           <h1 className="heading-font text-3xl font-bold text-foreground mb-2">Dashboard</h1>
           <p className="text-muted-foreground text-lg">Overview of your appointments and business metrics</p>
         </div>
-        <Button
-          onClick={handleManualRefresh}
-          variant="outline"
-          size="sm"
-          disabled={isRefreshing}
-        >
-          <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <OfflineStatus
+          isOnline={isOnline}
+          error={error}
+          lastUpdated={lastUpdated}
+          isRefreshing={isRefreshing}
+          onRefresh={handleManualRefresh}
+        />
       </div>
 
-      {/* Key Metrics - Match the image layout */}
+      <ErrorBanner error={error} />
+
+      {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card className="card-modern">
-          <CardContent className="p-6 text-center">
-            <div className="space-y-2">
-              <p className="text-4xl font-bold text-foreground">{stats.weeklyAppointments}</p>
-              <p className="text-sm text-muted-foreground">Total bookings this week</p>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Total Revenue</p>
+                <p className="text-3xl font-bold text-foreground">${stats.totalRevenue.toLocaleString()}</p>
+                <p className="text-sm text-green-600 font-medium">+{stats.revenueGrowth}% from last week</p>
+              </div>
+              <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+                <DollarSign className="w-6 h-6 text-green-600" />
+              </div>
             </div>
           </CardContent>
         </Card>
 
         <Card className="card-modern">
-          <CardContent className="p-6 text-center">
-            <div className="space-y-2">
-              <p className="text-4xl font-bold text-foreground">{stats.upcomingMeetings}</p>
-              <p className="text-sm text-muted-foreground">Upcoming meetings</p>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">This Week</p>
+                <p className="text-3xl font-bold text-foreground">{stats.weeklyAppointments}</p>
+                <p className="text-sm text-secondary font-medium">{stats.weeklyPaid} paid, {stats.weeklyFree} free</p>
+              </div>
+              <div className="w-12 h-12 bg-secondary/10 rounded-xl flex items-center justify-center">
+                <Calendar className="w-6 h-6 text-secondary" />
+              </div>
             </div>
           </CardContent>
         </Card>
 
         <Card className="card-modern">
-          <CardContent className="p-6 text-center">
-            <div className="space-y-2">
-              <p className="text-4xl font-bold text-blue-600">{stats.todaySlots}</p>
-              <p className="text-sm text-muted-foreground">Slots available today</p>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">AI Approval Rate</p>
+                <p className="text-3xl font-bold text-foreground">{stats.aiApprovalRate}%</p>
+                <p className="text-sm text-muted-foreground">Free sessions</p>
+              </div>
+              <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
+                <MessageSquare className="w-6 h-6 text-purple-600" />
+              </div>
             </div>
           </CardContent>
         </Card>
 
         <Card className="card-modern">
-          <CardContent className="p-6 text-center">
-            <div className="space-y-2">
-              <p className="text-4xl font-bold text-green-600">{stats.monthSlots}</p>
-              <p className="text-sm text-muted-foreground">Slots this month</p>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Show Rate</p>
+                <p className="text-3xl font-bold text-foreground">{stats.showRate}%</p>
+                <p className={`text-sm font-medium ${
+                  stats.showRate >= 90 ? 'text-green-600' :
+                  stats.showRate >= 80 ? 'text-blue-600' :
+                  stats.showRate >= 70 ? 'text-yellow-600' :
+                  stats.showRate > 0 ? 'text-red-600' : 'text-muted-foreground'
+                }`}>
+                  {stats.showRate >= 90 ? 'Excellent attendance' :
+                   stats.showRate >= 80 ? 'Good attendance' :
+                   stats.showRate >= 70 ? 'Fair attendance' :
+                   stats.showRate > 0 ? 'Needs improvement' : 'No data yet'}
+                </p>
+              </div>
+              <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+                <Users className="w-6 h-6 text-blue-600" />
+              </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Slot Status Indicators with Real Data */}
-      <div className="flex justify-center">
-        <div className="flex items-center gap-6 p-4 bg-muted/30 rounded-xl">
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 bg-blue-500 rounded"></div>
-            <span className="text-sm">Paid Available ({stats.paidAvailable})</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 bg-green-500 rounded"></div>
-            <span className="text-sm">Free Available ({stats.freeAvailable})</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 bg-gray-400 rounded"></div>
-            <span className="text-sm">Booked ({stats.bookedSlots})</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 bg-orange-500 rounded"></div>
-            <span className="text-sm">Pending ({stats.pendingAppointments})</span>
-          </div>
-        </div>
-      </div>
 
       {/* Enhanced dashboard with separate tabs for appointment types */}
       <Tabs defaultValue="overview" className="space-y-6">
