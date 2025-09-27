@@ -64,6 +64,15 @@ export function AdminSlots() {
     session_type: "free" as "free" | "paid",
   })
 
+  // Helper to get minimum date/time for validation
+  const getMinDateTime = () => {
+    const now = new Date()
+    return {
+      minDate: now.toISOString().split('T')[0],
+      minTime: now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0')
+    }
+  }
+
   useEffect(() => {
     fetchSlots()
   }, [])
@@ -110,8 +119,26 @@ export function AdminSlots() {
     sessionType: "free",
   })
 
+  // Filter out past dates from bulk generation
+  const filterFutureDates = (slots: TimeSlot[]) => {
+    const now = new Date()
+    return slots.filter(slot => {
+      const slotDateTime = new Date(`${slot.date}T${slot.time}`)
+      return slotDateTime > now
+    })
+  }
+
   const handleCreateSlot = async () => {
     try {
+      // Validate that slot is not in the past
+      const now = new Date()
+      const slotDateTime = new Date(`${newSlot.date}T${newSlot.time}`)
+
+      if (slotDateTime <= now) {
+        alert('Cannot create slots in the past. Please select a future date and time.')
+        return
+      }
+
       const { supabase } = await import("@/lib/supabase")
 
       // Check if slot already exists
@@ -304,8 +331,16 @@ export function AdminSlots() {
         })
       }
 
-      setPreviewSlots(generatedSlots)
+      // Filter out any slots in the past
+      const futureSlots = filterFutureDates(generatedSlots)
+
+      setPreviewSlots(futureSlots)
       setShowPreview(true)
+
+      if (futureSlots.length < generatedSlots.length) {
+        const pastCount = generatedSlots.length - futureSlots.length
+        alert(`Filtered out ${pastCount} slots that would be in the past. Showing ${futureSlots.length} future slots.`)
+      }
     } catch (error) {
       console.error("Error generating bulk slots:", error)
       alert("Error generating slots. Please check your settings and try again.")
@@ -569,6 +604,7 @@ export function AdminSlots() {
                 <Label>Start Date</Label>
                 <Input
                   type="date"
+                  min={getMinDateTime().minDate}
                   value={bulkSettings.dateRange.start}
                   onChange={(e) =>
                     setBulkSettings((prev) => ({
@@ -582,6 +618,7 @@ export function AdminSlots() {
                 <Label>End Date</Label>
                 <Input
                   type="date"
+                  min={bulkSettings.dateRange.start || getMinDateTime().minDate}
                   value={bulkSettings.dateRange.end}
                   onChange={(e) =>
                     setBulkSettings((prev) => ({
@@ -930,6 +967,7 @@ export function AdminSlots() {
                 <Label>Date</Label>
                 <Input
                   type="date"
+                  min={getMinDateTime().minDate}
                   value={newSlot.date}
                   onChange={(e) => setNewSlot({ ...newSlot, date: e.target.value })}
                 />
@@ -938,6 +976,7 @@ export function AdminSlots() {
                 <Label>Time</Label>
                 <Input
                   type="time"
+                  min={newSlot.date === getMinDateTime().minDate ? getMinDateTime().minTime : "00:00"}
                   value={newSlot.time}
                   onChange={(e) => setNewSlot({ ...newSlot, time: e.target.value })}
                 />

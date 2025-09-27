@@ -161,19 +161,15 @@ export default function BusinessPage() {
     try {
       const { supabase } = await import("@/lib/supabase")
 
-      const startDate = new Date(selectedDate)
-      startDate.setDate(1)
-      const endDate = new Date(selectedDate)
-      endDate.setMonth(endDate.getMonth() + 1)
-      endDate.setDate(0)
+      // Show infinite future slots from today onwards - no date range limit
+      const today = new Date().toISOString().split('T')[0]
 
       const { data: slots, error } = await supabase
         .from('time_slots')
         .select('*')
         .eq('is_available', true)
         .in('slot_type', ['business', 'both'])
-        .gte('date', startDate.toISOString().split('T')[0])
-        .lte('date', endDate.toISOString().split('T')[0])
+        .gte('date', today) // Only future slots from today
         .order('date', { ascending: true })
         .order('time', { ascending: true })
 
@@ -187,9 +183,9 @@ export default function BusinessPage() {
         id: slot.id,
         date: slot.date,
         time: slot.time,
-        type: 'paid',
+        type: slot.session_type === 'paid' ? 'paid' : 'free',
         state: 'available' as const,
-        price: 150
+        price: slot.session_type === 'paid' ? 150 : undefined
       }))
 
       setAvailableSlots(formattedSlots)
@@ -251,12 +247,12 @@ export default function BusinessPage() {
       company: null,
       date: slot.date,
       time: slot.time,
-      slot_id: slot.id, // NEW: Use foreign key relationship
-      status: 'confirmed' as const, // Auto-confirm all bookings if slot was made available
+      slot_id: slot.id, // Use foreign key relationship
+      status: slot.type === 'free' ? 'pending' as const : 'confirmed' as const, // Free slots need CEO approval, paid slots auto-confirm after payment
       meeting_type: bookingData.meetingMode,
       meeting_url: meetingUrl,
       venue_address: venueAddress,
-      meeting_notes: `Auto-generated meeting details for ${bookingData.meetingMode} session`,
+      meeting_notes: `Auto-generated meeting details for ${bookingData.meetingMode} session (${slot.type})`,
       purpose: bookingData.purpose
     }
 
@@ -285,7 +281,9 @@ export default function BusinessPage() {
           meetingType: bookingData.meetingMode!,
           meetingUrl: meetingUrl || undefined,
           venueAddress: venueAddress || undefined,
-          duration: bookingData.duration || undefined
+          duration: bookingData.duration || undefined,
+          sessionType: slot.type === 'paid' ? 'paid' : 'free',
+          appointmentType: 'business'
         })
 
         console.log('📧 Meeting confirmation email sent successfully')
@@ -306,25 +304,7 @@ export default function BusinessPage() {
     )
   }
 
-  const navigateMonth = (direction: "prev" | "next") => {
-    setSelectedDate((prev) => {
-      const newDate = new Date(prev)
-      if (direction === "prev") {
-        newDate.setMonth(newDate.getMonth() - 1)
-      } else {
-        newDate.setMonth(newDate.getMonth() + 1)
-      }
-      return newDate
-    })
-  }
-
-  const navigateToToday = () => {
-    setSelectedDate(new Date())
-  }
-
-  const formatMonthYear = (date: Date) => {
-    return date.toLocaleDateString("en-US", { month: "long", year: "numeric" })
-  }
+  // Remove month navigation - show infinite future slots
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 to-slate-100">
@@ -567,45 +547,15 @@ export default function BusinessPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
-                {/* Calendar Navigation Controls */}
+                {/* Header for Available Slots */}
                 <div className="mb-4 sm:mb-6">
-                  <div className="flex items-center justify-between mb-4 p-3 bg-slate-50 rounded-lg">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => navigateMonth("prev")}
-                      className="flex items-center gap-1 h-8 sm:h-9"
-                    >
-                      <ChevronLeft className="w-3 h-3 sm:w-4 sm:h-4" />
-                      <span className="hidden sm:inline">Prev</span>
-                    </Button>
-
+                  <div className="flex items-center justify-center mb-4 p-3 bg-slate-50 rounded-lg">
                     <div className="flex items-center gap-2">
                       <Calendar className="w-4 h-4 text-slate-600" />
                       <span className="font-semibold text-slate-900 text-sm sm:text-base">
-                        {formatMonthYear(selectedDate)}
+                        All Available Future Slots
                       </span>
                     </div>
-
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => navigateMonth("next")}
-                      className="flex items-center gap-1 h-8 sm:h-9"
-                    >
-                      <span className="hidden sm:inline">Next</span>
-                      <ChevronRight className="w-3 h-3 sm:w-4 sm:h-4" />
-                    </Button>
-                  </div>
-
-                  <div className="flex justify-center">
-                    <Button
-                      variant="link"
-                      onClick={navigateToToday}
-                      className="text-blue-600 text-xs sm:text-sm h-auto p-0"
-                    >
-                      Go to Today
-                    </Button>
                   </div>
                 </div>
 
@@ -683,9 +633,9 @@ export default function BusinessPage() {
                   {loading ? (
                     <div className="text-center py-8 text-slate-600">Loading slots...</div>
                   ) : getAvailableSlots().length === 0 ? (
-                    <div className="text-center py-8 text-slate-600">No available slots found for this month</div>
+                    <div className="text-center py-8 text-slate-600">No available slots found</div>
                   ) : (
-                  <div className="grid gap-2 sm:gap-3">
+                  <div className="space-y-4 max-h-96 overflow-y-auto">
                     {getAvailableSlots().map((slot) => (
                       <Button
                         key={slot.id}

@@ -165,7 +165,7 @@ export default function StudentPage() {
       date: slot.date,
       time: slot.time,
       slot_id: slot.id, // NEW: Use foreign key relationship
-      status: 'pending' as const,
+      status: sessionType === 'online-free' ? 'pending' as const : 'confirmed' as const,
       purpose: formData.purpose,
       meeting_type: sessionType === 'in-person' ? 'in-person' as const : 'online' as const
     }

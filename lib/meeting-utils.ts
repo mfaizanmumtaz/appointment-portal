@@ -26,6 +26,8 @@ interface EmailData {
   meetingUrl?: string
   venueAddress?: string
   duration?: number
+  sessionType?: 'free' | 'paid'
+  appointmentType?: 'business' | 'student' | 'in-person'
 }
 
 export const sendMeetingEmail = async (data: EmailData) => {
@@ -67,14 +69,19 @@ const generateEmailHTML = (data: EmailData) => {
     day: 'numeric'
   })
 
+  // Determine session type display
+  const sessionTypeText = data.sessionType === 'free' ? 'Free Session' : 'Paid Session'
+  const sessionTypeColor = data.sessionType === 'free' ? '#16a34a' : '#2563eb'
+  const consultationType = data.appointmentType === 'student' ? 'student session' : 'business consultation'
+
   if (data.meetingType === 'online') {
     return `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #2563eb;">Meeting Confirmed! 🎉</h2>
+        <h2 style="color: ${sessionTypeColor};">${sessionTypeText} Confirmed! 🎉</h2>
 
         <p>Hi ${data.name},</p>
 
-        <p>Your business consultation with <strong>Irfan Malik</strong> has been confirmed!</p>
+        <p>Your ${consultationType} with <strong>Irfan Malik</strong> has been confirmed!</p>
 
         <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
           <h3 style="margin-top: 0;">📅 Meeting Details</h3>
@@ -82,6 +89,7 @@ const generateEmailHTML = (data: EmailData) => {
           <p><strong>Time:</strong> ${data.time} EST</p>
           <p><strong>Duration:</strong> ${data.duration || 30} minutes</p>
           <p><strong>Type:</strong> Online Video Call</p>
+          <p><strong>Session:</strong> <span style="color: ${sessionTypeColor}; font-weight: bold;">${sessionTypeText}</span></p>
         </div>
 
         <div style="background: #dbeafe; padding: 20px; border-radius: 8px; margin: 20px 0;">
@@ -95,6 +103,10 @@ const generateEmailHTML = (data: EmailData) => {
           </p>
         </div>
 
+        ${data.sessionType === 'free' ?
+          '<div style="background: #dcfce7; padding: 15px; border-radius: 8px; margin: 20px 0;"><p style="margin: 0; color: #166534; font-weight: bold;">🎁 This is a complimentary session - no payment required!</p></div>'
+          : ''}
+
         <p>Looking forward to our discussion!</p>
 
         <p>Best regards,<br>
@@ -105,11 +117,11 @@ const generateEmailHTML = (data: EmailData) => {
   } else {
     return `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #16a34a;">In-Person Meeting Confirmed! 🤝</h2>
+        <h2 style="color: ${sessionTypeColor};">In-Person ${sessionTypeText} Confirmed! 🤝</h2>
 
         <p>Hi ${data.name},</p>
 
-        <p>Your in-person consultation with <strong>Irfan Malik</strong> has been confirmed!</p>
+        <p>Your in-person ${consultationType} with <strong>Irfan Malik</strong> has been confirmed!</p>
 
         <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
           <h3 style="margin-top: 0;">📅 Meeting Details</h3>
@@ -117,6 +129,7 @@ const generateEmailHTML = (data: EmailData) => {
           <p><strong>Time:</strong> ${data.time} EST</p>
           <p><strong>Duration:</strong> ${data.duration || 30} minutes</p>
           <p><strong>Type:</strong> In-Person Meeting</p>
+          <p><strong>Session:</strong> <span style="color: ${sessionTypeColor}; font-weight: bold;">${sessionTypeText}</span></p>
         </div>
 
         <div style="background: #dcfce7; padding: 20px; border-radius: 8px; margin: 20px 0;">
@@ -126,6 +139,10 @@ const generateEmailHTML = (data: EmailData) => {
             Please arrive 5-10 minutes early. Visitor parking is available.
           </p>
         </div>
+
+        ${data.sessionType === 'free' ?
+          '<div style="background: #dcfce7; padding: 15px; border-radius: 8px; margin: 20px 0;"><p style="margin: 0; color: #166534; font-weight: bold;">🎁 This is a complimentary session - no payment required!</p></div>'
+          : ''}
 
         <p>Looking forward to meeting you in person!</p>
 
