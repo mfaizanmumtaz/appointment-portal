@@ -5,122 +5,134 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
-import { Shield, User, Mail, MessageSquare, CheckCircle, AlertTriangle } from "lucide-react"
-import { useOffline } from "@/hooks/use-offline"
-import { OfflineStatus, ErrorBanner } from "@/components/ui/offline-status"
+import { Shield, User, Mail, MessageSquare, CheckCircle, AlertTriangle, RefreshCw } from "lucide-react"
 
 interface TriageEntry {
   id: string
-  student_name: string
-  student_email: string
-  student_phone: string
-  purpose: string
-  ai_decision: "approved" | "declined" | "uncertain"
-  ai_reasoning: string
-  ai_confidence: number
-  manual_review: boolean
-  manual_decision?: "approved" | "declined"
-  manual_notes?: string
-  reviewed_by?: string
-  reviewed_at?: string
-  created_at: string
+  userName: string
+  userEmail: string
+  category: "business" | "student"
+  reason: string
+  aiReason: string
+  submittedAt: string
+  status: "refused" | "reached-back" | "approved"
+  details: {
+    company?: string
+    school?: string
+    purpose: string
+  }
+}
+
+interface AccuracyStats {
+  accuracy_percentage: number
+  total_decisions: number
+  correct_decisions: number
+  total_declined: number
+  total_approved: number
+  total_uncertain: number
+  total_manual_reviews: number
 }
 
 export function AdminTriage() {
   const [triageEntries, setTriageEntries] = useState<TriageEntry[]>([])
+  const [accuracyStats, setAccuracyStats] = useState<AccuracyStats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [selectedEntry, setSelectedEntry] = useState<string | null>(null)
   const [reachBackMessage, setReachBackMessage] = useState("")
-
-  const {
-    isOnline,
-    error,
-    lastUpdated,
-    isRefreshing,
-    setLastUpdated,
-    setIsRefreshing,
-    executeWithOfflineCheck
-  } = useOffline({ autoRefresh: true, refreshInterval: 30000 })
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    executeWithOfflineCheck(fetchTriageEntries)
-
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(() => {
-      if (navigator.onLine) {
-        executeWithOfflineCheck(fetchTriageEntries)
-      }
-    }, 30000)
-
-    return () => clearInterval(interval)
+    fetchData()
   }, [])
 
-  const handleManualRefresh = async () => {
-    setIsRefreshing(true)
-    await executeWithOfflineCheck(fetchTriageEntries)
-    setIsRefreshing(false)
+  const fetchData = async () => {
+    await Promise.all([
+      fetchTriageEntries(),
+      fetchAccuracyStats()
+    ])
   }
 
   const fetchTriageEntries = async () => {
-    setLoading(true)
+    try {
+      setLoading(true)
+      setError(null)
 
-    const { supabase } = await import("@/lib/supabase")
+      const { supabase } = await import("@/lib/supabase")
 
       const { data, error } = await supabase
-        .from('student_triage_log')
+        .from('ai_triage_entries')
         .select('*')
         .order('created_at', { ascending: false })
 
       if (error) {
         console.error('Error fetching triage entries:', error)
+        setError('Failed to load triage entries')
         return
       }
 
       setTriageEntries(data || [])
-      setLastUpdated(new Date())
+    } catch (err) {
+      console.error('Error:', err)
+      setError('Failed to load triage entries')
+    } finally {
       setLoading(false)
+      setRefreshing(false)
+    }
+  }
+
+  const fetchAccuracyStats = async () => {
+    try {
+      const { supabase } = await import("@/lib/supabase")
+
+      const { data, error } = await supabase.rpc('get_ai_accuracy_stats')
+
+      if (error) {
+        console.error('Error fetching accuracy stats:', error)
+        return
+      }
+
+      if (data && data.length > 0) {
+        setAccuracyStats(data[0])
+      }
+    } catch (err) {
+      console.error('Error fetching accuracy stats:', err)
+    }
+  }
+
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    await fetchData()
   }
 
   const handleReachBack = async (entryId: string) => {
     try {
       const { supabase } = await import("@/lib/supabase")
 
-      const { error } = await supabase
-        .from('student_triage_log')
-        .update({
-          manual_review: true,
-          manual_decision: 'declined',
-          manual_notes: reachBackMessage,
-          reviewed_by: 'Admin',
-          reviewed_at: new Date().toISOString()
-        })
-        .eq('id', entryId)
+      const { error } = await supabase.rpc('update_triage_entry_status', {
+        entry_id: entryId,
+        new_status: 'reached-back',
+        admin_notes: reachBackMessage || null
+      })
 
       if (error) {
         console.error('Error updating triage entry:', error)
+        setError('Failed to update entry')
         return
       }
 
       // Update local state
       setTriageEntries((prev) =>
-        prev.map((entry) =>
-          entry.id === entryId
-            ? {
-                ...entry,
-                manual_review: true,
-                manual_decision: 'declined',
-                manual_notes: reachBackMessage,
-                reviewed_by: 'Admin',
-                reviewed_at: new Date().toISOString()
-              }
-            : entry
-        )
+        prev.map((entry) => (entry.id === entryId ? { ...entry, status: "reached-back" as const } : entry)),
       )
       setSelectedEntry(null)
       setReachBackMessage("")
+      // Refresh accuracy stats after admin action
+      await fetchAccuracyStats()
       // TODO: Here you would typically send an email to the user
-    } catch (error) {
-      console.error('Error:', error)
+    } catch (err) {
+      console.error('Error:', err)
+      setError('Failed to update entry')
     }
   }
 
@@ -128,108 +140,90 @@ export function AdminTriage() {
     try {
       const { supabase } = await import("@/lib/supabase")
 
-      const { error } = await supabase
-        .from('student_triage_log')
-        .update({
-          manual_review: true,
-          manual_decision: 'approved',
-          reviewed_by: 'Admin',
-          reviewed_at: new Date().toISOString()
-        })
-        .eq('id', entryId)
+      const { error } = await supabase.rpc('update_triage_entry_status', {
+        entry_id: entryId,
+        new_status: 'approved',
+        admin_notes: null
+      })
 
       if (error) {
         console.error('Error updating triage entry:', error)
+        setError('Failed to update entry')
         return
+      }
+
+      // Get the approved entry details
+      const approvedEntry = triageEntries.find(entry => entry.id === entryId)
+
+      if (approvedEntry) {
+        // Create appointment entry for manually approved case
+        const { error: appointmentError } = await supabase
+          .from('appointments')
+          .insert({
+            first_name: approvedEntry.userName.split(' ')[0] || approvedEntry.userName,
+            last_name: approvedEntry.userName.split(' ').slice(1).join(' ') || '',
+            email: approvedEntry.userEmail,
+            phone: approvedEntry.details?.phone || 'Not provided',
+            purpose: approvedEntry.details?.purpose || 'Manually approved student session',
+            type: 'student',
+            status: 'pending', // CEO still needs to confirm
+            meeting_mode: 'online',
+            duration: 45,
+            date: null, // Will be set when user books a slot
+            time: null,
+            slot_id: null,
+            meeting_notes: `Manually approved by admin. Original AI decision: declined. AI reasoning: ${approvedEntry.aiReason}`,
+            created_at: new Date().toISOString()
+          })
+
+        if (appointmentError) {
+          console.error('Error creating appointment:', appointmentError)
+          setError('Approved entry but failed to create appointment record')
+        } else {
+          console.log('✅ Created appointment for approved entry')
+        }
       }
 
       // Update local state
       setTriageEntries((prev) =>
-        prev.map((entry) =>
-          entry.id === entryId
-            ? {
-                ...entry,
-                manual_review: true,
-                manual_decision: 'approved',
-                reviewed_by: 'Admin',
-                reviewed_at: new Date().toISOString()
-              }
-            : entry
-        )
+        prev.map((entry) => (entry.id === entryId ? { ...entry, status: "approved" as const } : entry)),
       )
       setSelectedEntry(null)
-      // TODO: Create appointment entry for manually approved cases
-    } catch (error) {
-      console.error('Error:', error)
+      // Refresh accuracy stats after admin action
+      await fetchAccuracyStats()
+    } catch (err) {
+      console.error('Error:', err)
+      setError('Failed to update entry')
     }
   }
 
-  const getStatusColor = (entry: TriageEntry) => {
-    if (entry.manual_review) {
-      switch (entry.manual_decision) {
-        case "declined":
-          return "bg-blue-100 text-blue-800"
-        case "approved":
-          return "bg-green-100 text-green-800"
-        default:
-          return "bg-gray-100 text-gray-800"
-      }
-    } else {
-      switch (entry.ai_decision) {
-        case "declined":
-          return "bg-red-100 text-red-800"
-        case "approved":
-          return "bg-green-100 text-green-800"
-        case "uncertain":
-          return "bg-yellow-100 text-yellow-800"
-        default:
-          return "bg-gray-100 text-gray-800"
-      }
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "refused":
+        return "bg-red-100 text-red-800"
+      case "reached-back":
+        return "bg-blue-100 text-blue-800"
+      case "approved":
+        return "bg-green-100 text-green-800"
+      default:
+        return "bg-gray-100 text-gray-800"
     }
   }
 
-  const getStatusIcon = (entry: TriageEntry) => {
-    if (entry.manual_review) {
-      switch (entry.manual_decision) {
-        case "declined":
-          return <Mail className="w-4 h-4" />
-        case "approved":
-          return <CheckCircle className="w-4 h-4" />
-        default:
-          return <Shield className="w-4 h-4" />
-      }
-    } else {
-      switch (entry.ai_decision) {
-        case "declined":
-          return <AlertTriangle className="w-4 h-4" />
-        case "approved":
-          return <CheckCircle className="w-4 h-4" />
-        case "uncertain":
-          return <Shield className="w-4 h-4" />
-        default:
-          return <Shield className="w-4 h-4" />
-      }
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case "refused":
+        return <AlertTriangle className="w-4 h-4" />
+      case "reached-back":
+        return <Mail className="w-4 h-4" />
+      case "approved":
+        return <CheckCircle className="w-4 h-4" />
+      default:
+        return <Shield className="w-4 h-4" />
     }
   }
 
-  const getStatusText = (entry: TriageEntry) => {
-    if (entry.manual_review) {
-      return entry.manual_decision === "declined" ? "Reached Back" : "Manually Approved"
-    } else {
-      return `AI ${entry.ai_decision}`
-    }
-  }
-
-  const declinedEntries = triageEntries.filter((entry) =>
-    entry.ai_decision === "declined" || (entry.manual_review && entry.manual_decision === "declined")
-  )
-  const approvedEntries = triageEntries.filter((entry) =>
-    entry.ai_decision === "approved" || (entry.manual_review && entry.manual_decision === "approved")
-  )
-  const uncertainEntries = triageEntries.filter((entry) =>
-    entry.ai_decision === "uncertain" && !entry.manual_review
-  )
-  const manuallyReviewedEntries = triageEntries.filter((entry) => entry.manual_review)
+  const refusedEntries = triageEntries.filter((entry) => entry.status === "refused")
 
   if (loading) {
     return (
@@ -247,18 +241,23 @@ export function AdminTriage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="heading-font text-3xl font-bold text-foreground mb-2">AI Triage Log</h1>
-          <p className="text-muted-foreground">Review AI decisions and manually declined sessions</p>
+          <p className="text-muted-foreground">Review people who were auto-refused by AI filter</p>
+          {error && (
+            <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+              {error}
+            </div>
+          )}
         </div>
-        <OfflineStatus
-          isOnline={isOnline}
-          error={error}
-          lastUpdated={lastUpdated}
-          isRefreshing={isRefreshing}
-          onRefresh={handleManualRefresh}
-        />
+        <Button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          variant="outline"
+          className="flex items-center gap-2"
+        >
+          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+          {refreshing ? 'Refreshing...' : 'Refresh'}
+        </Button>
       </div>
-
-      <ErrorBanner error={error} />
 
       {/* Summary Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -267,32 +266,8 @@ export function AdminTriage() {
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-red-500" />
               <div>
-                <p className="text-2xl font-bold">{declinedEntries.length}</p>
-                <p className="text-sm text-muted-foreground">Declined</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="card-calm">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <CheckCircle className="w-5 h-5 text-green-500" />
-              <div>
-                <p className="text-2xl font-bold">{approvedEntries.length}</p>
-                <p className="text-sm text-muted-foreground">Approved</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="card-calm">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <Shield className="w-5 h-5 text-yellow-500" />
-              <div>
-                <p className="text-2xl font-bold">{uncertainEntries.length}</p>
-                <p className="text-sm text-muted-foreground">Uncertain</p>
+                <p className="text-2xl font-bold">{triageEntries.filter((e) => e.status === "refused").length}</p>
+                <p className="text-sm text-muted-foreground">Auto-Refused</p>
               </div>
             </div>
           </CardContent>
@@ -303,8 +278,41 @@ export function AdminTriage() {
             <div className="flex items-center gap-2">
               <Mail className="w-5 h-5 text-blue-500" />
               <div>
-                <p className="text-2xl font-bold">{manuallyReviewedEntries.length}</p>
-                <p className="text-sm text-muted-foreground">Manual Review</p>
+                <p className="text-2xl font-bold">{triageEntries.filter((e) => e.status === "reached-back").length}</p>
+                <p className="text-sm text-muted-foreground">Reached Back</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="card-calm">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-5 h-5 text-green-500" />
+              <div>
+                <p className="text-2xl font-bold">{triageEntries.filter((e) => e.status === "approved").length}</p>
+                <p className="text-sm text-muted-foreground">Manually Approved</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="card-calm">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2">
+              <Shield className="w-5 h-5 text-primary" />
+              <div>
+                <p className="text-2xl font-bold">
+                  {accuracyStats ? `${accuracyStats.accuracy_percentage}%` : '--'}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  AI Accuracy
+                  {accuracyStats && (
+                    <span className="block text-xs text-muted-foreground/80">
+                      {accuracyStats.correct_decisions}/{accuracyStats.total_decisions} correct
+                    </span>
+                  )}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -313,29 +321,29 @@ export function AdminTriage() {
 
       {/* Triage Entries */}
       <div className="space-y-4">
-        {triageEntries.length === 0 ? (
+        {refusedEntries.length === 0 ? (
           <Card className="card-calm">
             <CardContent className="p-8 text-center">
               <Shield className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No Triage Entries</h3>
-              <p className="text-muted-foreground">No AI triage decisions yet</p>
+              <h3 className="text-lg font-semibold mb-2">No Refused Requests</h3>
+              <p className="text-muted-foreground">All recent requests have been approved by AI</p>
             </CardContent>
           </Card>
         ) : (
-          triageEntries.map((entry) => (
+          refusedEntries.map((entry) => (
             <Card key={entry.id} className="card-calm">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="flex items-center gap-2">
                     <User className="w-5 h-5" />
-                    {entry.student_name}
+                    {entry.userName}
                   </CardTitle>
                   <div className="flex items-center gap-2">
-                    <Badge className={getStatusColor(entry)}>
-                      {getStatusIcon(entry)}
-                      <span className="ml-1">{getStatusText(entry)}</span>
+                    <Badge className={getStatusColor(entry.status)}>
+                      {getStatusIcon(entry.status)}
+                      <span className="ml-1">{entry.status.replace("-", " ")}</span>
                     </Badge>
-                    <Badge variant="outline">Student</Badge>
+                    <Badge variant="outline">{entry.category === "business" ? "Business" : "Student"}</Badge>
                   </div>
                 </div>
               </CardHeader>
@@ -343,68 +351,44 @@ export function AdminTriage() {
                 <div className="grid md:grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="text-muted-foreground">Email:</span>
-                    <span className="ml-2">{entry.student_email}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Phone:</span>
-                    <span className="ml-2">{entry.student_phone}</span>
+                    <span className="ml-2">{entry.userEmail}</span>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Submitted:</span>
-                    <span className="ml-2">{new Date(entry.created_at).toLocaleString()}</span>
+                    <span className="ml-2">{entry.submittedAt}</span>
                   </div>
-                  <div>
-                    <span className="text-muted-foreground">Confidence:</span>
-                    <span className="ml-2">{Math.round(entry.ai_confidence * 100)}%</span>
-                  </div>
+                  {entry.details.company && (
+                    <div>
+                      <span className="text-muted-foreground">Company:</span>
+                      <span className="ml-2">{entry.details.company}</span>
+                    </div>
+                  )}
+                  {entry.details.school && (
+                    <div>
+                      <span className="text-muted-foreground">School:</span>
+                      <span className="ml-2">{entry.details.school}</span>
+                    </div>
+                  )}
                 </div>
 
                 <div>
                   <h4 className="font-medium mb-2">Original Request:</h4>
-                  <p className="text-sm text-muted-foreground bg-muted/30 p-3 rounded-xl">{entry.purpose}</p>
+                  <p className="text-sm text-muted-foreground bg-muted/30 p-3 rounded-xl">{entry.details.purpose}</p>
                 </div>
 
                 <div>
                   <h4 className="font-medium mb-2 flex items-center gap-2">
                     <Shield className="w-4 h-4" />
-                    AI Decision:
+                    AI Refusal Reason:
                   </h4>
-                  <p className={`text-sm p-3 rounded-xl border ${
-                    entry.ai_decision === 'declined'
-                      ? 'bg-red-50 border-red-200 text-red-700'
-                      : entry.ai_decision === 'approved'
-                      ? 'bg-green-50 border-green-200 text-green-700'
-                      : 'bg-yellow-50 border-yellow-200 text-yellow-700'
-                  }`}>
-                    <strong>Decision:</strong> {entry.ai_decision}
+                  <p className="text-sm text-muted-foreground bg-red-50 p-3 rounded-xl border border-red-200">
+                    <strong>Category:</strong> {entry.reason}
                     <br />
-                    <strong>Reasoning:</strong> {entry.ai_reasoning}
+                    <strong>Analysis:</strong> {entry.aiReason}
                   </p>
                 </div>
 
-                {entry.manual_review && (
-                  <div>
-                    <h4 className="font-medium mb-2 flex items-center gap-2">
-                      <User className="w-4 h-4" />
-                      Manual Review:
-                    </h4>
-                    <p className="text-sm bg-blue-50 p-3 rounded-xl border border-blue-200 text-blue-700">
-                      <strong>Decision:</strong> {entry.manual_decision}
-                      <br />
-                      <strong>Reviewed by:</strong> {entry.reviewed_by}
-                      <br />
-                      <strong>Date:</strong> {entry.reviewed_at ? new Date(entry.reviewed_at).toLocaleString() : 'N/A'}
-                      {entry.manual_notes && (
-                        <>
-                          <br />
-                          <strong>Notes:</strong> {entry.manual_notes}
-                        </>
-                      )}
-                    </p>
-                  </div>
-                )}
-
-                {entry.ai_decision === "declined" && !entry.manual_review && (
+                {entry.status === "refused" && (
                   <>
                     {selectedEntry === entry.id ? (
                       <div className="space-y-4 border-t border-border pt-4">

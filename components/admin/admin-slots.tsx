@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Textarea } from "@/components/ui/textarea"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Calendar, Clock, DollarSign, Users, Plus, Edit, Trash2, CalendarDays, Eye, AlertTriangle, RefreshCw } from "lucide-react"
 import { useOffline } from "@/hooks/use-offline"
 import { OfflineStatus, ErrorBanner } from "@/components/ui/offline-status"
@@ -77,10 +78,11 @@ export function AdminSlots() {
     setLastUpdated,
     setIsRefreshing,
     executeWithOfflineCheck
-  } = useOffline({ autoRefresh: true, refreshInterval: 30000 })
+  } = useOffline({ autoRefresh: false, refreshInterval: 30000 })
   const [showPreview, setShowPreview] = useState(false)
   const [selectedSlots, setSelectedSlots] = useState<string[]>([])
   const [previewSlots, setPreviewSlots] = useState<TimeSlot[]>([])
+  const [conflictResolution, setConflictResolution] = useState<'skip' | 'delete-and-create'>('skip')
 
   const [newSlot, setNewSlot] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -100,15 +102,6 @@ export function AdminSlots() {
 
   useEffect(() => {
     executeWithOfflineCheck(fetchSlots)
-
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(() => {
-      if (navigator.onLine) {
-        executeWithOfflineCheck(fetchSlots)
-      }
-    }, 30000)
-
-    return () => clearInterval(interval)
   }, [])
 
   const handleManualRefresh = async () => {
@@ -270,25 +263,46 @@ export function AdminSlots() {
     try {
       const { supabase } = await import("@/lib/supabase")
 
-      const { error } = await supabase
+      // Get the slot details first to clean up related triage logs
+      const { data: slotData } = await supabase
+        .from('time_slots')
+        .select('date, time')
+        .eq('id', id)
+        .single()
+
+      // Delete the slot first
+      const { error: slotError } = await supabase
         .from('time_slots')
         .delete()
         .eq('id', id)
 
-      if (error) {
-        console.error('Error deleting slot:', error)
+      if (slotError) {
+        console.error('Error deleting slot:', slotError)
         toast({
           title: "Error Deleting Slot",
-          description: error.message,
+          description: slotError.message,
           variant: "destructive"
         })
         return
       }
 
+      // Clean up related AI triage logs if slot existed
+      if (slotData) {
+        const { error: triageError } = await supabase
+          .from('student_triage_log')
+          .delete()
+          .eq('created_at', slotData.date) // Clean up triage logs from the same date
+
+        if (triageError) {
+          console.warn('Warning: Could not clean up some triage logs:', triageError)
+          // Don't fail the operation for this
+        }
+      }
+
       setSlots(slots.filter((slot) => slot.id !== id))
       toast({
         title: "Success",
-        description: "Slot deleted successfully!",
+        description: "Slot and related data deleted successfully!",
         variant: "default"
       })
     } catch (error) {
@@ -393,7 +407,7 @@ export function AdminSlots() {
           .or(slotQueries)
           .in('status', ['confirmed', 'pending'])
 
-        // Check existing slots
+        // Check existing slots (any slot at same date/time regardless of type due to unique constraint)
         const { data: existingSlots } = await supabase
           .from('time_slots')
           .select('date, time, slot_type, session_type')
@@ -403,18 +417,18 @@ export function AdminSlots() {
           existingAppointments?.map(apt => `${apt.date}-${apt.time}`) || []
         )
 
+        // Due to database unique constraint on (date, time), any existing slot at same time conflicts
         const slotConflicts = new Set(
-          existingSlots?.map(slot => `${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`) || []
+          existingSlots?.map(slot => `${slot.date}-${slot.time}`) || []
         )
 
         // Mark conflicts in generated slots
         generatedSlots.forEach(slot => {
           const timeKey = `${slot.date}-${slot.time}`
-          const slotKey = `${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`
 
           if (appointmentConflicts.has(timeKey)) {
             slot.id = `conflict-appointment-${slot.id}`
-          } else if (slotConflicts.has(slotKey)) {
+          } else if (slotConflicts.has(timeKey)) {
             slot.id = `conflict-slot-${slot.id}`
           }
         })
@@ -425,6 +439,7 @@ export function AdminSlots() {
 
       setPreviewSlots(futureSlots)
       setShowPreview(true)
+      setConflictResolution('skip') // Reset to default option
 
       if (futureSlots.length < generatedSlots.length) {
         const pastCount = generatedSlots.length - futureSlots.length
@@ -459,14 +474,14 @@ export function AdminSlots() {
         .or(slotQueries)
         .in('status', ['confirmed', 'pending'])
 
-      // Check for existing time slots that would conflict
+      // Check for existing time slots that would conflict (any slot at same date/time due to unique constraint)
       const slotCheckQueries = previewSlots.map(slot =>
-        `(date = '${slot.date}' AND time = '${slot.time}' AND slot_type = '${slot.slot_type}' AND session_type = '${slot.session_type}')`
+        `(date = '${slot.date}' AND time = '${slot.time}')`
       ).join(' OR ')
 
       const { data: existingSlots } = await supabase
         .from('time_slots')
-        .select('date, time, slot_type, session_type')
+        .select('id, date, time, slot_type, session_type')
         .or(slotCheckQueries)
 
       // Filter out slots that have confirmed/pending appointments
@@ -474,38 +489,95 @@ export function AdminSlots() {
         existingAppointments?.map(apt => `${apt.date}-${apt.time}`) || []
       )
 
-      // Filter out slots that already exist
+      // Filter out slots that already exist (due to unique constraint on date+time)
       const slotConflicts = new Set(
-        existingSlots?.map(slot => `${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`) || []
+        existingSlots?.map(slot => `${slot.date}-${slot.time}`) || []
       )
 
-      const slotsToInsert = previewSlots
-        .filter(slot => {
-          const appointmentKey = `${slot.date}-${slot.time}`
-          const slotKey = `${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`
-          return !appointmentConflicts.has(appointmentKey) && !slotConflicts.has(slotKey)
-        })
-        .map(slot => ({
-          date: slot.date,
-          time: slot.time,
-          is_available: true,
-          slot_type: slot.slot_type,
-          session_type: slot.session_type,
-        }))
+      // If delete-and-create is selected, delete conflicting slots first
+      if (conflictResolution === 'delete-and-create' && existingSlots && existingSlots.length > 0) {
+        const conflictingSlotIds = existingSlots
+          .filter(existingSlot => {
+            const timeKey = `${existingSlot.date}-${existingSlot.time}`
+            return previewSlots.some(previewSlot => {
+              const previewTimeKey = `${previewSlot.date}-${previewSlot.time}`
+              return previewTimeKey === timeKey && !appointmentConflicts.has(timeKey)
+            })
+          })
+          .map(slot => slot.id)
+
+        if (conflictingSlotIds.length > 0) {
+          const { error: deleteError } = await supabase
+            .from('time_slots')
+            .delete()
+            .in('id', conflictingSlotIds)
+
+          if (deleteError) {
+            console.error('Error deleting conflicting slots:', deleteError)
+            toast({
+              title: "Error Deleting Conflicting Slots",
+              description: deleteError.message,
+              variant: "destructive"
+            })
+            return
+          }
+
+          // Remove deleted slots from local state
+          setSlots(prev => prev.filter(slot => !conflictingSlotIds.includes(slot.id)))
+
+          toast({
+            title: "Conflicting Slots Deleted",
+            description: `Deleted ${conflictingSlotIds.length} existing conflicting slots.`,
+            variant: "default"
+          })
+        }
+      }
+
+      // Determine which slots to insert
+      let slotsToInsert
+      if (conflictResolution === 'delete-and-create') {
+        // Include all slots that don't have appointment conflicts
+        slotsToInsert = previewSlots
+          .filter(slot => {
+            const appointmentKey = `${slot.date}-${slot.time}`
+            return !appointmentConflicts.has(appointmentKey)
+          })
+          .map(slot => ({
+            date: slot.date,
+            time: slot.time,
+            is_available: true,
+            slot_type: slot.slot_type,
+            session_type: slot.session_type,
+          }))
+      } else {
+        // Skip both appointment and slot conflicts
+        slotsToInsert = previewSlots
+          .filter(slot => {
+            const timeKey = `${slot.date}-${slot.time}`
+            return !appointmentConflicts.has(timeKey) && !slotConflicts.has(timeKey)
+          })
+          .map(slot => ({
+            date: slot.date,
+            time: slot.time,
+            is_available: true,
+            slot_type: slot.slot_type,
+            session_type: slot.session_type,
+          }))
+      }
 
       if (slotsToInsert.length === 0) {
-        const appointmentCount = previewSlots.filter(slot => 
+        const appointmentCount = previewSlots.filter(slot =>
           appointmentConflicts.has(`${slot.date}-${slot.time}`)
         ).length
         const duplicateCount = previewSlots.filter(slot =>
-          slotConflicts.has(`${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`)
+          slotConflicts.has(`${slot.date}-${slot.time}`)
         ).length
 
         let message = 'No new slots to create!'
         if (appointmentCount > 0) {
           message += ` ${appointmentCount} slots skipped due to existing appointments.`
         }
-        if (duplicateCount > 0) {
+        if (duplicateCount > 0 && conflictResolution === 'skip') {
           message += ` ${duplicateCount} slots already exist.`
         }
         toast({
@@ -516,7 +588,7 @@ export function AdminSlots() {
         return
       }
 
-      // Insert new slots (no duplicates since we pre-filtered)
+      // Insert new slots
       const { data, error } = await supabase
         .from('time_slots')
         .insert(slotsToInsert)
@@ -532,11 +604,11 @@ export function AdminSlots() {
         return
       }
 
-      const appointmentConflictCount = previewSlots.filter(slot => 
+      const appointmentConflictCount = previewSlots.filter(slot =>
         appointmentConflicts.has(`${slot.date}-${slot.time}`)
       ).length
       const duplicateConflictCount = previewSlots.filter(slot =>
-        slotConflicts.has(`${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`)
+        slotConflicts.has(`${slot.date}-${slot.time}`)
       ).length
 
       let message = `Successfully created ${data?.length || 0} slots!`
@@ -544,7 +616,7 @@ export function AdminSlots() {
       if (appointmentConflictCount > 0) {
         message += ` (Skipped ${appointmentConflictCount} slots due to existing appointments)`
       }
-      if (duplicateConflictCount > 0) {
+      if (duplicateConflictCount > 0 && conflictResolution === 'skip') {
         message += ` (Skipped ${duplicateConflictCount} duplicate slots)`
       }
 
@@ -580,19 +652,43 @@ export function AdminSlots() {
     try {
       const { supabase } = await import("@/lib/supabase")
 
-      const { error } = await supabase
+      // Get date range of slots being deleted to clean up triage logs
+      const slotsToDelete = slots.filter((slot) => selectedSlots.includes(slot.id))
+      const dateRange = slotsToDelete.map(slot => slot.date)
+      const minDate = Math.min(...dateRange.map(date => new Date(date).getTime()))
+      const maxDate = Math.max(...dateRange.map(date => new Date(date).getTime()))
+
+      // Delete the slots first
+      const { error: slotsError } = await supabase
         .from('time_slots')
         .delete()
         .in('id', selectedSlots)
 
-      if (error) {
-        console.error('Error bulk deleting slots:', error)
+      if (slotsError) {
+        console.error('Error bulk deleting slots:', slotsError)
         toast({
           title: "Error Deleting Slots",
-          description: error.message,
+          description: slotsError.message,
           variant: "destructive"
         })
         return
+      }
+
+      // Clean up AI triage logs in the date range of deleted slots
+      if (dateRange.length > 0) {
+        const startDate = new Date(minDate).toISOString().split('T')[0]
+        const endDate = new Date(maxDate).toISOString().split('T')[0]
+
+        const { error: triageError } = await supabase
+          .from('student_triage_log')
+          .delete()
+          .gte('created_at', startDate)
+          .lte('created_at', endDate + 'T23:59:59.999Z')
+
+        if (triageError) {
+          console.warn('Warning: Could not clean up some triage logs:', triageError)
+          // Don't fail the operation for this
+        }
       }
 
       const deletedCount = selectedSlots.length
@@ -600,7 +696,7 @@ export function AdminSlots() {
       setSelectedSlots([])
       toast({
         title: "Success",
-        description: `Successfully deleted ${deletedCount} slots!`,
+        description: `Successfully deleted ${deletedCount} slots and related data!`,
         variant: "default"
       })
     } catch (error) {
@@ -1035,29 +1131,63 @@ export function AdminSlots() {
               )}
             </div>
 
-            {/* Conflict Summary */}
+            {/* Conflict Summary and Resolution */}
             {previewSlots.some(slot => slot.id.startsWith('conflict-')) && (
-              <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <div className="flex items-center gap-2 mb-2">
-                  <AlertTriangle className="w-4 h-4 text-yellow-600" />
-                  <span className="text-sm font-medium text-yellow-800">Conflicts Detected</span>
+              <div className="mt-4 space-y-4">
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle className="w-4 h-4 text-yellow-600" />
+                    <span className="text-sm font-medium text-yellow-800">Conflicts Detected</span>
+                  </div>
+                  <div className="text-sm text-yellow-700 space-y-1">
+                    {previewSlots.filter(slot => slot.id.startsWith('conflict-appointment-')).length > 0 && (
+                      <div>• {previewSlots.filter(slot => slot.id.startsWith('conflict-appointment-')).length} slots have existing appointments (cannot be deleted)</div>
+                    )}
+                    {previewSlots.filter(slot => slot.id.startsWith('conflict-slot-')).length > 0 && (
+                      <div>• {previewSlots.filter(slot => slot.id.startsWith('conflict-slot-')).length} slots already exist</div>
+                    )}
+                  </div>
                 </div>
-                <div className="text-sm text-yellow-700 space-y-1">
-                  {previewSlots.filter(slot => slot.id.startsWith('conflict-appointment-')).length > 0 && (
-                    <div>• {previewSlots.filter(slot => slot.id.startsWith('conflict-appointment-')).length} slots have existing appointments</div>
-                  )}
-                  {previewSlots.filter(slot => slot.id.startsWith('conflict-slot-')).length > 0 && (
-                    <div>• {previewSlots.filter(slot => slot.id.startsWith('conflict-slot-')).length} slots already exist</div>
-                  )}
-                  <div className="mt-1 text-xs">Conflicting slots will be skipped during creation.</div>
-                </div>
+
+                {/* Conflict Resolution Options */}
+                {previewSlots.filter(slot => slot.id.startsWith('conflict-slot-')).length > 0 && (
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <Label className="text-sm font-medium text-blue-800 mb-3 block">
+                      How would you like to handle existing slot conflicts?
+                    </Label>
+                    <RadioGroup
+                      value={conflictResolution}
+                      onValueChange={(value: 'skip' | 'delete-and-create') => setConflictResolution(value)}
+                      className="space-y-2"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="skip" id="skip" />
+                        <Label htmlFor="skip" className="text-sm text-blue-700">
+                          Skip conflicting slots (safer option)
+                        </Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="delete-and-create" id="delete-and-create" />
+                        <Label htmlFor="delete-and-create" className="text-sm text-blue-700">
+                          Delete existing slots and create new ones (⚠️ will permanently delete {previewSlots.filter(slot => slot.id.startsWith('conflict-slot-')).length} existing slots)
+                        </Label>
+                      </div>
+                    </RadioGroup>
+                    <div className="mt-2 text-xs text-blue-600">
+                      Note: Slots with existing appointments will always be skipped to prevent data loss.
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
             <div className="flex gap-3">
               <Button onClick={confirmBulkCreation} className="btn-primary">
                 <Plus className="w-4 h-4 mr-2" />
-                Create All Slots
+                {conflictResolution === 'delete-and-create' && previewSlots.some(slot => slot.id.startsWith('conflict-slot-'))
+                  ? 'Delete Conflicts & Create All Slots'
+                  : 'Create All Slots'
+                }
               </Button>
               <Button onClick={() => setShowPreview(false)} variant="outline">
                 Back to Edit

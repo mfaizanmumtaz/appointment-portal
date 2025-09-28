@@ -49,7 +49,7 @@ export function AdminRequests() {
     setLastUpdated,
     setIsRefreshing,
     executeWithOfflineCheck
-  } = useOffline({ autoRefresh: true, refreshInterval: 30000 })
+  } = useOffline({ autoRefresh: false, refreshInterval: 30000 })
 
   // Meeting details for approval
   const [meetingDetails, setMeetingDetails] = useState({
@@ -61,15 +61,6 @@ export function AdminRequests() {
 
   useEffect(() => {
     executeWithOfflineCheck(fetchPendingAppointments)
-
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(() => {
-      if (navigator.onLine) {
-        executeWithOfflineCheck(fetchPendingAppointments)
-      }
-    }, 30000)
-
-    return () => clearInterval(interval)
   }, [])
 
   const handleManualRefresh = async () => {

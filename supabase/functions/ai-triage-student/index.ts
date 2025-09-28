@@ -3,7 +3,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-requested-with, x-supabase-api-version',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Max-Age': '86400',
 }
 
@@ -21,29 +21,36 @@ interface TriageResponse {
 }
 
 serve(async (req) => {
-  // Handle CORS preflight requests
+  // Always return 200 for OPTIONS with CORS headers
   if (req.method === 'OPTIONS') {
+    console.log('🔄 CORS preflight request received')
     return new Response(null, {
       status: 200,
       headers: corsHeaders
     })
   }
 
-  // Only allow POST requests
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    })
-  }
-
   try {
+    // Only allow POST requests
+    if (req.method !== 'POST') {
+      console.log(`❌ Method ${req.method} not allowed`)
+      return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+        status: 405,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+
+    console.log('🚀 AI Triage Edge Function started')
+
     // Get OpenAI API key from environment variables
     const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY')
-    
+
     if (!OPENAI_API_KEY) {
+      console.error('❌ OpenAI API key not found in environment')
       throw new Error('OpenAI API key not configured. Set OPENAI_API_KEY environment variable')
     }
+
+    console.log('✅ OpenAI API key found')
 
     const triageData: TriageRequest = await req.json()
 
@@ -120,9 +127,33 @@ Focus on helping genuine students while maintaining quality standards for the me
     })
 
     if (!response.ok) {
-      const errorData = await response.json()
+      let errorData
+      try {
+        errorData = await response.json()
+      } catch (e) {
+        errorData = { error: { message: 'Failed to parse error response' } }
+      }
       console.error('OpenAI API error:', errorData)
-      throw new Error(`OpenAI API error: ${response.status} - ${errorData.error?.message || 'Unknown error'}`)
+      console.error('Response status:', response.status)
+      console.error('Response headers:', Object.fromEntries(response.headers.entries()))
+
+      // Return a structured fallback instead of throwing
+      const fallbackResult: TriageResponse = {
+        decision: 'uncertain',
+        reasoning: `OpenAI API unavailable (${response.status}). Request will be reviewed manually.`,
+        confidence: 0.5
+      }
+
+      return new Response(JSON.stringify({
+        success: true, // Don't break user flow
+        result: fallbackResult,
+        student: {
+          name: triageData.name,
+          email: triageData.email
+        }
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
     const aiResponse = await response.json()
@@ -135,20 +166,36 @@ Focus on helping genuine students while maintaining quality standards for the me
     // Parse AI response
     let triageResult: TriageResponse
     try {
+      console.log('🔍 Raw AI response content:', aiContent)
       triageResult = JSON.parse(aiContent)
+      console.log('✅ Parsed AI response:', triageResult)
     } catch (parseError) {
-      console.error('Failed to parse AI response:', aiContent)
-      throw new Error('Invalid AI response format')
+      console.error('❌ Failed to parse AI response:', aiContent)
+      console.error('❌ Parse error:', parseError)
+
+      // Fallback response with proper structure
+      triageResult = {
+        decision: 'uncertain',
+        reasoning: 'AI response could not be parsed properly. Request will be reviewed manually.',
+        confidence: 0.5
+      }
+      console.log('🔄 Using fallback response:', triageResult)
     }
 
-    // Validate AI response structure
+    // Validate and fix AI response structure
     if (!triageResult.decision || !triageResult.reasoning || typeof triageResult.confidence !== 'number') {
-      throw new Error('AI response missing required fields')
+      console.log('⚠️ AI response missing required fields, fixing...')
+      triageResult = {
+        decision: triageResult.decision || 'uncertain',
+        reasoning: triageResult.reasoning || 'AI response incomplete. Request will be reviewed manually.',
+        confidence: typeof triageResult.confidence === 'number' ? triageResult.confidence : 0.5
+      }
     }
 
     // Ensure decision is valid
     if (!['approved', 'declined', 'uncertain'].includes(triageResult.decision)) {
-      throw new Error('Invalid AI decision value')
+      console.log('⚠️ Invalid AI decision, defaulting to uncertain')
+      triageResult.decision = 'uncertain'
     }
 
     console.log(`✅ AI Triage Result: ${triageResult.decision} (confidence: ${triageResult.confidence})`)
@@ -180,8 +227,11 @@ Focus on helping genuine students while maintaining quality standards for the me
       error: error instanceof Error ? error.message : 'Unknown error',
       result: fallbackResult // Provide fallback so user flow continues
     }), {
-      status: 200, // Don't break user flow
+      status: 200, // Don't break user flow with error status
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   }
 })
+
+// Log when function is ready
+console.log('🤖 AI Triage Student Edge Function ready and listening...')

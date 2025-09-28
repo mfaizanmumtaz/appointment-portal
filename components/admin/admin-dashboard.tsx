@@ -49,19 +49,10 @@ export function AdminDashboard() {
     setLastUpdated,
     setIsRefreshing,
     executeWithOfflineCheck
-  } = useOffline({ autoRefresh: true, refreshInterval: 30000 })
+  } = useOffline({ autoRefresh: false, refreshInterval: 30000 })
 
   useEffect(() => {
     executeWithOfflineCheck(fetchDashboardData)
-
-    // Set up auto-refresh
-    const interval = setInterval(() => {
-      if (navigator.onLine) {
-        executeWithOfflineCheck(fetchDashboardData)
-      }
-    }, 30000)
-
-    return () => clearInterval(interval)
   }, [])
 
   const handleManualRefresh = async () => {

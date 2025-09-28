@@ -37,19 +37,10 @@ export function AdminCalendar() {
     setLastUpdated,
     setIsRefreshing,
     executeWithOfflineCheck
-  } = useOffline({ autoRefresh: true, refreshInterval: 30000 })
+  } = useOffline({ autoRefresh: false, refreshInterval: 30000 })
 
   useEffect(() => {
     executeWithOfflineCheck(fetchAppointments)
-
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(() => {
-      if (navigator.onLine) {
-        executeWithOfflineCheck(fetchAppointments)
-      }
-    }, 30000)
-
-    return () => clearInterval(interval)
   }, [])
 
   const handleManualRefresh = async () => {

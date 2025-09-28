@@ -47,7 +47,7 @@ export function AdminMeetings() {
     setLastUpdated,
     setIsRefreshing,
     executeWithOfflineCheck
-  } = useOffline({ autoRefresh: true, refreshInterval: 30000 })
+  } = useOffline({ autoRefresh: false, refreshInterval: 30000 })
 
   // Form state for editing meeting details
   const [meetingForm, setMeetingForm] = useState({
@@ -59,15 +59,6 @@ export function AdminMeetings() {
 
   useEffect(() => {
     executeWithOfflineCheck(fetchAppointments)
-
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(() => {
-      if (navigator.onLine) {
-        executeWithOfflineCheck(fetchAppointments)
-      }
-    }, 30000)
-
-    return () => clearInterval(interval)
   }, [])
 
   const handleManualRefresh = async () => {

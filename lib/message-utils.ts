@@ -16,6 +16,14 @@ export interface UpdateMessageData {
   replied_at?: string
 }
 
+export interface ChatReplyEmailData {
+  to: string
+  name: string
+  originalMessage: string
+  adminReply: string
+  replyDate: string
+}
+
 // Create a new instant message
 export const createInstantMessage = async (data: CreateMessageData) => {
   try {
@@ -73,7 +81,36 @@ export const fetchInstantMessages = async () => {
   }
 }
 
-// Update message status or add admin reply
+// Send chat reply email notification
+export const sendChatReplyEmail = async (emailData: ChatReplyEmailData) => {
+  try {
+    console.log('📧 Sending chat reply email to:', emailData.to)
+
+    const { data, error } = await supabase.functions.invoke('send-chat-reply', {
+      body: {
+        to: emailData.to,
+        name: emailData.name,
+        originalMessage: emailData.originalMessage,
+        adminReply: emailData.adminReply,
+        replyDate: emailData.replyDate
+      }
+    })
+
+    if (error) {
+      console.error('Edge Function error:', error)
+      throw new Error(`Failed to send chat reply email: ${error.message}`)
+    }
+
+    console.log('✅ Chat reply email sent successfully:', data)
+    return { success: true, data }
+
+  } catch (error) {
+    console.error('❌ Failed to send chat reply email:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+// Update message status or add admin reply (with email notification)
 export const updateInstantMessage = async (messageId: string, updates: UpdateMessageData) => {
   try {
     console.log('🔄 Updating message:', messageId, updates)
@@ -105,6 +142,66 @@ export const updateInstantMessage = async (messageId: string, updates: UpdateMes
 
   } catch (error) {
     console.error('❌ Failed to update message:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+// Update message with reply and send email notification
+export const replyToInstantMessage = async (messageId: string, adminReply: string) => {
+  try {
+    console.log('💬 Processing chat reply for message:', messageId)
+
+    // First, get the original message details
+    const { data: originalMessage, error: fetchError } = await supabase
+      .from('instant_messages')
+      .select('*')
+      .eq('id', messageId)
+      .single()
+
+    if (fetchError || !originalMessage) {
+      console.error('Error fetching original message:', fetchError)
+      throw new Error('Could not fetch original message')
+    }
+
+    // Update the message with the reply
+    const updateResult = await updateInstantMessage(messageId, {
+      admin_reply: adminReply,
+      status: 'replied'
+    })
+
+    if (!updateResult.success) {
+      throw new Error(updateResult.error)
+    }
+
+    // Send email notification to the original sender
+    try {
+      const emailResult = await sendChatReplyEmail({
+        to: originalMessage.email,
+        name: originalMessage.name,
+        originalMessage: originalMessage.message,
+        adminReply: adminReply,
+        replyDate: new Date().toISOString()
+      })
+
+      if (!emailResult.success) {
+        console.warn('⚠️ Email sending failed but message was updated:', emailResult.error)
+        // Don't fail the entire operation if email fails
+      } else {
+        console.log('✅ Email notification sent successfully')
+      }
+    } catch (emailError) {
+      console.warn('⚠️ Email sending failed but message was updated:', emailError)
+      // Don't fail the entire operation if email fails
+    }
+
+    return {
+      success: true,
+      data: updateResult.data,
+      emailSent: true // We'll assume success unless explicitly failed
+    }
+
+  } catch (error) {
+    console.error('❌ Failed to reply to message:', error)
     return { success: false, error: error.message }
   }
 }

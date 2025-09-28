@@ -8,7 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import { MessageSquare, Send, User, Clock, Check, CheckCheck, RefreshCw, Mail, Phone } from "lucide-react"
-import { fetchInstantMessages, updateInstantMessage, markMessageAsRead, subscribeToMessages } from "@/lib/message-utils"
+import { fetchInstantMessages, updateInstantMessage, markMessageAsRead, subscribeToMessages, replyToInstantMessage } from "@/lib/message-utils"
 import type { InstantMessage } from "@/lib/types/database"
 import { useOffline } from "@/hooks/use-offline"
 import { OfflineStatus, ErrorBanner } from "@/components/ui/offline-status"
@@ -36,22 +36,13 @@ export function AdminChat() {
     setLastUpdated,
     setIsRefreshing,
     executeWithOfflineCheck
-  } = useOffline({ autoRefresh: true, refreshInterval: 30000 })
+  } = useOffline({ autoRefresh: false, refreshInterval: 30000 })
 
   const selectedMessage = messages.find(msg => msg.id === selectedMessageId)
 
   // Load messages on component mount
   useEffect(() => {
     executeWithOfflineCheck(loadMessages)
-
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(() => {
-      if (navigator.onLine) {
-        executeWithOfflineCheck(loadMessages)
-      }
-    }, 30000)
-
-    return () => clearInterval(interval)
   }, [])
 
   // Set up real-time subscription
@@ -106,19 +97,20 @@ export function AdminChat() {
 
     setIsSubmitting(true)
     try {
-      const result = await updateInstantMessage(selectedMessageId, {
-        admin_reply: replyText,
-        status: 'replied'
-      })
+      // Use the new replyToInstantMessage function that includes email sending
+      const result = await replyToInstantMessage(selectedMessageId, replyText)
 
       if (result.success) {
         // Update local state
-        setMessages(prev => prev.map(msg => 
-          msg.id === selectedMessageId 
+        setMessages(prev => prev.map(msg =>
+          msg.id === selectedMessageId
             ? { ...msg, admin_reply: replyText, status: 'replied', replied_at: new Date().toISOString() }
             : msg
         ))
         setReplyText("")
+
+        // Show success message indicating email was sent
+        console.log("✅ Reply sent and email notification delivered")
       } else {
         alert("Failed to send reply. Please try again.")
       }
@@ -326,8 +318,9 @@ export function AdminChat() {
                 {/* Reply Form */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-slate-700">
+                    <span className="text-sm font-medium text-slate-700 flex items-center gap-2">
                       {selectedMessage.admin_reply ? 'Send Another Reply' : 'Send Reply'}
+                      <Mail className="w-3 h-3 text-blue-500" title="Email notification will be sent" />
                     </span>
                   </div>
 
@@ -368,12 +361,12 @@ export function AdminChat() {
                       {isSubmitting ? (
                         <>
                           <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                          Sending...
+                          Sending Reply & Email...
                         </>
                       ) : (
                         <>
                           <Send className="w-4 h-4 mr-2" />
-                          Send Reply
+                          Send Reply & Email
                         </>
                       )}
                     </Button>

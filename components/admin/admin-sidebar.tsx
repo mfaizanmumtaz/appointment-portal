@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Calendar, MessageSquare, BarChart3, Settings, Shield, Clock, ImageIcon, Video } from "lucide-react"
+import { useAdminCounts } from "@/hooks/use-admin-counts"
 
 interface AdminSidebarProps {
   currentView: string
@@ -13,14 +14,16 @@ interface AdminSidebarProps {
 }
 
 export function AdminSidebar({ currentView, onViewChange }: AdminSidebarProps) {
+  const { counts, loading } = useAdminCounts()
+
   const menuItems = [
     { id: "dashboard", label: "Dashboard", icon: BarChart3, badge: null },
     { id: "slots", label: "Slot Management", icon: Clock, badge: null },
-    { id: "calendar", label: "Calendar View", icon: Calendar, badge: "12" },
+    { id: "calendar", label: "Calendar View", icon: Calendar, badge: counts.totalAppointments > 0 ? counts.totalAppointments.toString() : null },
     { id: "meetings", label: "Meeting Management", icon: Video, badge: null },
-    { id: "requests", label: "Requests Queue", icon: MessageSquare, badge: "3" },
-    { id: "triage", label: "AI Triage Log", icon: Shield, badge: "8" },
-    { id: "chat", label: "Quick Chat", icon: MessageSquare, badge: "2" },
+    { id: "requests", label: "Requests Queue", icon: MessageSquare, badge: counts.pendingRequests > 0 ? counts.pendingRequests.toString() : null },
+    { id: "triage", label: "AI Triage Log", icon: Shield, badge: counts.triageEntries > 0 ? counts.triageEntries.toString() : null },
+    { id: "chat", label: "Quick Chat", icon: MessageSquare, badge: counts.unreadChats > 0 ? counts.unreadChats.toString() : null },
     { id: "gallery", label: "Gallery Management", icon: ImageIcon, badge: null },
     { id: "settings", label: "Settings", icon: Settings, badge: null },
   ]
@@ -63,19 +66,19 @@ export function AdminSidebar({ currentView, onViewChange }: AdminSidebarProps) {
             <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Today's Sessions:</span>
               <Badge variant="outline" className="font-semibold">
-                5
+                {loading ? "..." : counts.todaysSessions}
               </Badge>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Pending Requests:</span>
               <Badge variant="outline" className="font-semibold">
-                3
+                {loading ? "..." : counts.pendingRequests}
               </Badge>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-muted-foreground">This Week:</span>
               <Badge variant="outline" className="font-semibold">
-                28
+                {loading ? "..." : counts.thisWeekSessions}
               </Badge>
             </div>
           </div>

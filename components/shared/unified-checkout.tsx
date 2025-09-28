@@ -3,6 +3,7 @@
 import type React from "react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
+import { useToast } from "@/hooks/use-toast"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -75,6 +76,7 @@ const getSessionFeatures = (config: CheckoutConfig): string[] => {
 export function UnifiedCheckout(config: CheckoutConfig) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [generatedDetails, setGeneratedDetails] = useState<{ meetingUrl?: string; venueAddress?: string }>({})
+  const { toast } = useToast()
 
   const price = getSessionPrice(config)
   const sessionName = getSessionName(config)
@@ -86,20 +88,47 @@ export function UnifiedCheckout(config: CheckoutConfig) {
     e.preventDefault()
     setIsProcessing(true)
 
-    // Only save appointment for student sessions
-    if (config.type === "student") {
-      await saveStudentAppointment()
-    }
+    try {
+      // Only save appointment for student sessions
+      if (config.type === "student") {
+        await saveStudentAppointment()
+      }
 
-    setTimeout(() => {
+      setTimeout(() => {
+        setIsProcessing(false)
+        config.onSuccess(config.type === "student" ? generatedDetails : undefined)
+      }, 2000)
+    } catch (error) {
       setIsProcessing(false)
-      config.onSuccess(config.type === "student" ? generatedDetails : undefined)
-    }, 2000)
+      console.error('Booking error:', error)
+      toast({
+        title: "Booking Failed",
+        description: error instanceof Error ? error.message : "Something went wrong. Please try again.",
+        variant: "destructive"
+      })
+    }
   }
 
   const saveStudentAppointment = async () => {
     const { supabase } = await import("@/lib/supabase")
     const { generateZoomLink, generateVenueAddress } = await import("@/lib/meeting-utils")
+
+    // First, atomically check and reserve the slot
+    const { data: slotCheck, error: slotError } = await supabase
+      .rpc('book_slot_atomically', {
+        p_slot_id: config.selectedSlot.id,
+        p_date: config.selectedSlot.date,
+        p_time: config.selectedSlot.time,
+        p_slot_type: config.selectedSlot.slot_type,
+        p_session_type: config.selectedSlot.session_type
+      })
+
+    if (slotError || !slotCheck) {
+      console.error('Slot booking failed:', slotError)
+      // Release the slot if there was an error
+      await supabase.rpc('release_slot_booking', { p_slot_id: config.selectedSlot.id })
+      throw new Error('This slot is no longer available. Please select another time.')
+    }
 
     let meetingUrl = null
     let venueAddress = null
@@ -132,14 +161,20 @@ export function UnifiedCheckout(config: CheckoutConfig) {
       meeting_notes: meetingNotes
     }
 
+    // Now create the appointment since slot is reserved
     const { error: appointmentError } = await supabase
       .from('appointments')
       .insert(appointmentData)
 
     if (appointmentError) {
       console.error('Error saving appointment:', appointmentError)
-      return
+      // Release the slot if appointment creation failed
+      await supabase.rpc('release_slot_booking', { p_slot_id: config.selectedSlot.id })
+      throw new Error('Failed to create appointment. Please try again.')
     }
+
+    // Finalize the booking
+    await supabase.rpc('finalize_slot_booking', { p_slot_id: config.selectedSlot.id })
 
     setGeneratedDetails({
       meetingUrl: meetingUrl,

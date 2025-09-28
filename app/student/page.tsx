@@ -94,11 +94,14 @@ export default function StudentPage() {
         
         if (response.success && response.result) {
           const decision = response.result.decision
-          const reasoning = formatTriageReasoning(response.result.reasoning)
-          
+          const reasoning = response.result.reasoning // Use raw reasoning, don't format it
+
+          console.log('🎯 AI Decision:', decision)
+          console.log('📝 AI Reasoning:', reasoning)
+
           setTriageResult(decision)
           setTriageReasoning(reasoning)
-          
+
           // Save triage result to database for admin review
           await saveTriageResult({
             name: formData.firstName,
@@ -394,11 +397,11 @@ export default function StudentPage() {
                     </div>
                     <h3 className="text-xl font-semibold">AI is reviewing your request...</h3>
                     <p className="text-muted-foreground">
-                      Our AI is analyzing your purpose and matching it with our mentorship criteria. This may take a few moments.
+                      Evaluating your guidance needs and session fit
                     </p>
                     <div className="flex items-center justify-center space-x-2 text-sm text-muted-foreground">
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
-                      <span>Processing with GPT-4o-mini...</span>
+                      <span>Processing...</span>
                     </div>
                   </div>
                 ) : triageResult && (
@@ -408,9 +411,6 @@ export default function StudentPage() {
                         <CheckCircle className="w-16 h-16 text-green-500 mx-auto" />
                         <h3 className="text-xl font-semibold text-green-700">Request Approved!</h3>
                         <p className="text-muted-foreground">{getTriageMessage(triageResult)}</p>
-                        {triageReasoning && (
-                          <p className="text-sm text-muted-foreground italic">"{triageReasoning}"</p>
-                        )}
                       </>
                     )}
                     
@@ -421,9 +421,6 @@ export default function StudentPage() {
                         </div>
                         <h3 className="text-xl font-semibold text-yellow-700">Under Review</h3>
                         <p className="text-muted-foreground">{getTriageMessage(triageResult)}</p>
-                        {triageReasoning && (
-                          <p className="text-sm text-muted-foreground italic">"{triageReasoning}"</p>
-                        )}
                         <Button onClick={() => setStep("calendar")} className="mt-4">
                           Continue to Calendar
                         </Button>
@@ -443,11 +440,6 @@ export default function StudentPage() {
                   <XCircle className="w-16 h-16 text-red-500 mx-auto" />
                   <h3 className="text-xl font-semibold text-red-700">Request not approved</h3>
                   <p className="text-muted-foreground">{getTriageMessage("declined")}</p>
-                  {triageReasoning && (
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                      <p className="text-sm text-red-700 italic">"{triageReasoning}"</p>
-                    </div>
-                  )}
                   <div className="flex gap-3 justify-center flex-wrap">
                     <Button asChild variant="outline">
                       <a href="https://irfangpt.com" target="_blank" rel="noopener noreferrer">

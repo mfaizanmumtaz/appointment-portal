@@ -33,32 +33,69 @@ export const evaluateStudentRequest = async (studentData: StudentTriageData): Pr
   try {
     console.log('🤖 Sending student request for AI evaluation:', studentData.name)
 
-    const { data, error } = await supabase.functions.invoke('ai-triage-student', {
-      body: {
+    // Try direct fetch first as a fallback
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error('Supabase configuration missing')
+    }
+
+    console.log('🔗 Using direct fetch to Edge Function...')
+    const response = await fetch(`${supabaseUrl}/functions/v1/ai-triage-student`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${supabaseKey}`,
+        'apikey': supabaseKey
+      },
+      body: JSON.stringify({
         name: studentData.name,
         email: studentData.email,
         phone: studentData.phone,
         purpose: studentData.purpose
-      }
+      })
     })
 
-    if (error) {
-      console.error('Edge function error:', error)
-      throw new Error(error.message || 'AI triage service unavailable')
+    console.log('🔍 Direct fetch response status:', response.status)
+    console.log('🔍 Direct fetch response headers:', Object.fromEntries(response.headers.entries()))
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('❌ Direct fetch failed:', response.status, errorText)
+      throw new Error(`Edge Function failed: ${response.status} - ${errorText}`)
     }
 
+    const data = await response.json()
+    console.log('✅ Direct fetch succeeded:', data)
+
     if (!data) {
+      console.error('No data returned from Edge Function')
       throw new Error('No response from AI triage service')
     }
 
+    // Validate response structure
+    if (!data.success && !data.result) {
+      console.error('❌ Invalid response structure:', data)
+      throw new Error('Invalid response from AI service')
+    }
+
     console.log('✅ AI Triage completed:', data.result?.decision)
+    console.log('📊 Full response:', data)
     return data as TriageResponse
 
   } catch (error) {
     console.error('❌ AI triage evaluation failed:', error)
-    
+
+    // More detailed error logging
+    if (error instanceof Error) {
+      console.error('Error name:', error.name)
+      console.error('Error message:', error.message)
+      console.error('Error stack:', error.stack)
+    }
+
     const errorMessage = error instanceof Error ? error.message : 'AI evaluation failed'
-    
+
     // Return a fallback response to keep user flow working
     return {
       success: false,
