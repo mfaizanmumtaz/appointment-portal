@@ -9,7 +9,7 @@ import { useAdminCounts } from "@/hooks/use-admin-counts"
 interface AdminSidebarProps {
   currentView: string
   onViewChange: (
-    view: "calendar" | "requests" | "dashboard" | "settings" | "slots" | "chat" | "triage" | "gallery" | "meetings",
+    view: "calendar" | "requests" | "dashboard" | "settings" | "slots" | "chat" | "triage" | "gallery",
   ) => void
 }
 
@@ -20,7 +20,6 @@ export function AdminSidebar({ currentView, onViewChange }: AdminSidebarProps) {
     { id: "dashboard", label: "Dashboard", icon: BarChart3, badge: null },
     { id: "slots", label: "Slot Management", icon: Clock, badge: null },
     { id: "calendar", label: "Calendar View", icon: Calendar, badge: counts.totalAppointments > 0 ? counts.totalAppointments.toString() : null },
-    { id: "meetings", label: "Meeting Management", icon: Video, badge: null },
     { id: "requests", label: "Requests Queue", icon: MessageSquare, badge: counts.pendingRequests > 0 ? counts.pendingRequests.toString() : null },
     { id: "triage", label: "AI Triage Log", icon: Shield, badge: counts.triageEntries > 0 ? counts.triageEntries.toString() : null },
     { id: "chat", label: "Quick Chat", icon: MessageSquare, badge: counts.unreadChats > 0 ? counts.unreadChats.toString() : null },

@@ -395,40 +395,44 @@ export function AdminSlots() {
       // Check for conflicts with existing appointments and slots
       const { supabase } = await import("@/lib/supabase")
 
-      const slotQueries = generatedSlots.map(slot =>
-        `(date = '${slot.date}' AND time = '${slot.time}')`
-      ).join(' OR ')
+      if (generatedSlots.length > 0) {
+        // Check existing appointments using date range to avoid URL length issues
+        const startDate = new Date(bulkSettings.dateRange.start)
+        const endDate = new Date(bulkSettings.dateRange.end)
 
-      if (slotQueries) {
-        // Check existing appointments
         const { data: existingAppointments } = await supabase
           .from('appointments')
           .select('date, time, status')
-          .or(slotQueries)
+          .gte('date', startDate.toISOString().split('T')[0])
+          .lte('date', endDate.toISOString().split('T')[0])
           .in('status', ['confirmed', 'pending'])
-
-        // Check existing slots (any slot at same date/time regardless of type due to unique constraint)
-        const { data: existingSlots } = await supabase
-          .from('time_slots')
-          .select('date, time, slot_type, session_type')
-          .or(slotQueries)
 
         const appointmentConflicts = new Set(
           existingAppointments?.map(apt => `${apt.date}-${apt.time}`) || []
         )
 
-        // Due to database unique constraint on (date, time), any existing slot at same time conflicts
-        const slotConflicts = new Set(
-          existingSlots?.map(slot => `${slot.date}-${slot.time}`) || []
-        )
+        // Check existing slots using date range and then filter in memory for better performance
+        const { data: existingSlots } = await supabase
+          .from('time_slots')
+          .select('date, time, slot_type, session_type')
+          .gte('date', startDate.toISOString().split('T')[0])
+          .lte('date', endDate.toISOString().split('T')[0])
+
+        const slotConflicts = new Set()
+        if (existingSlots) {
+          for (const existingSlot of existingSlots) {
+            slotConflicts.add(`${existingSlot.date}-${existingSlot.time}-${existingSlot.slot_type}-${existingSlot.session_type}`)
+          }
+        }
 
         // Mark conflicts in generated slots
         generatedSlots.forEach(slot => {
           const timeKey = `${slot.date}-${slot.time}`
+          const exactSlotKey = `${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`
 
           if (appointmentConflicts.has(timeKey)) {
             slot.id = `conflict-appointment-${slot.id}`
-          } else if (slotConflicts.has(timeKey)) {
+          } else if (slotConflicts.has(exactSlotKey)) {
             slot.id = `conflict-slot-${slot.id}`
           }
         })
@@ -463,35 +467,52 @@ export function AdminSlots() {
     try {
       const { supabase } = await import("@/lib/supabase")
 
-      // Check for existing appointments that would conflict
-      const slotQueries = previewSlots.map(slot =>
-        `(date = '${slot.date}' AND time = '${slot.time}')`
-      ).join(' OR ')
+      // Check for existing appointments that would conflict using date range
+      const startDate = previewSlots.reduce((min, slot) =>
+        slot.date < min ? slot.date : min, previewSlots[0]?.date || ''
+      )
+      const endDate = previewSlots.reduce((max, slot) =>
+        slot.date > max ? slot.date : max, previewSlots[0]?.date || ''
+      )
 
       const { data: existingAppointments } = await supabase
         .from('appointments')
         .select('date, time, status')
-        .or(slotQueries)
+        .gte('date', startDate)
+        .lte('date', endDate)
         .in('status', ['confirmed', 'pending'])
 
-      // Check for existing time slots that would conflict (any slot at same date/time due to unique constraint)
-      const slotCheckQueries = previewSlots.map(slot =>
-        `(date = '${slot.date}' AND time = '${slot.time}')`
-      ).join(' OR ')
-
-      const { data: existingSlots } = await supabase
+      // Check for existing time slots using date range approach for better performance
+      const { data: allExistingSlots } = await supabase
         .from('time_slots')
         .select('id, date, time, slot_type, session_type')
-        .or(slotCheckQueries)
+        .gte('date', startDate)
+        .lte('date', endDate)
+
+      // Filter to only slots that exactly match our preview slots
+      const existingSlots = []
+      if (allExistingSlots) {
+        for (const previewSlot of previewSlots) {
+          const matchingSlot = allExistingSlots.find(existing =>
+            existing.date === previewSlot.date &&
+            existing.time === previewSlot.time &&
+            existing.slot_type === previewSlot.slot_type &&
+            existing.session_type === previewSlot.session_type
+          )
+          if (matchingSlot) {
+            existingSlots.push(matchingSlot)
+          }
+        }
+      }
 
       // Filter out slots that have confirmed/pending appointments
       const appointmentConflicts = new Set(
         existingAppointments?.map(apt => `${apt.date}-${apt.time}`) || []
       )
 
-      // Filter out slots that already exist (due to unique constraint on date+time)
+      // Filter out slots that already exist (exact match on date, time, slot_type, session_type)
       const slotConflicts = new Set(
-        existingSlots?.map(slot => `${slot.date}-${slot.time}`) || []
+        existingSlots?.map(slot => `${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`) || []
       )
 
       // If delete-and-create is selected, delete conflicting slots first
@@ -499,9 +520,10 @@ export function AdminSlots() {
         const conflictingSlotIds = existingSlots
           .filter(existingSlot => {
             const timeKey = `${existingSlot.date}-${existingSlot.time}`
+            const exactSlotKey = `${existingSlot.date}-${existingSlot.time}-${existingSlot.slot_type}-${existingSlot.session_type}`
             return previewSlots.some(previewSlot => {
-              const previewTimeKey = `${previewSlot.date}-${previewSlot.time}`
-              return previewTimeKey === timeKey && !appointmentConflicts.has(timeKey)
+              const previewExactKey = `${previewSlot.date}-${previewSlot.time}-${previewSlot.slot_type}-${previewSlot.session_type}`
+              return previewExactKey === exactSlotKey && !appointmentConflicts.has(timeKey)
             })
           })
           .map(slot => slot.id)
@@ -554,7 +576,8 @@ export function AdminSlots() {
         slotsToInsert = previewSlots
           .filter(slot => {
             const timeKey = `${slot.date}-${slot.time}`
-            return !appointmentConflicts.has(timeKey) && !slotConflicts.has(timeKey)
+            const exactSlotKey = `${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`
+            return !appointmentConflicts.has(timeKey) && !slotConflicts.has(exactSlotKey)
           })
           .map(slot => ({
             date: slot.date,
@@ -588,11 +611,40 @@ export function AdminSlots() {
         return
       }
 
-      // Insert new slots
-      const { data, error } = await supabase
-        .from('time_slots')
-        .insert(slotsToInsert)
-        .select()
+      // Insert new slots one by one to handle any remaining conflicts gracefully
+      const insertedSlots = []
+      const insertErrors = []
+
+      for (const slotData of slotsToInsert) {
+        try {
+          const { data: insertedSlot, error: insertError } = await supabase
+            .from('time_slots')
+            .insert(slotData)
+            .select()
+            .single()
+
+          if (insertError) {
+            if (insertError.message.includes('duplicate key value') || insertError.message.includes('unique constraint')) {
+              // Skip duplicate slots silently
+              console.log(`Skipping duplicate slot: ${slotData.date} ${slotData.time} ${slotData.slot_type} ${slotData.session_type}`)
+            } else {
+              insertErrors.push(`${slotData.date} ${slotData.time}: ${insertError.message}`)
+            }
+          } else if (insertedSlot) {
+            insertedSlots.push(insertedSlot)
+          }
+        } catch (err) {
+          console.error('Error inserting slot:', err)
+          insertErrors.push(`${slotData.date} ${slotData.time}: ${err.message || 'Unknown error'}`)
+        }
+      }
+
+      if (insertErrors.length > 0) {
+        console.warn('Some slots failed to insert:', insertErrors)
+      }
+
+      const data = insertedSlots
+      const error = insertErrors.length === slotsToInsert.length ? new Error('All slots failed to insert') : null
 
       if (error) {
         console.error('Error creating bulk slots:', error)
@@ -608,7 +660,7 @@ export function AdminSlots() {
         appointmentConflicts.has(`${slot.date}-${slot.time}`)
       ).length
       const duplicateConflictCount = previewSlots.filter(slot =>
-        slotConflicts.has(`${slot.date}-${slot.time}`)
+        slotConflicts.has(`${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`)
       ).length
 
       let message = `Successfully created ${data?.length || 0} slots!`
@@ -618,6 +670,9 @@ export function AdminSlots() {
       }
       if (duplicateConflictCount > 0 && conflictResolution === 'skip') {
         message += ` (Skipped ${duplicateConflictCount} duplicate slots)`
+      }
+      if (insertErrors.length > 0) {
+        message += ` (${insertErrors.length} slots had insertion issues - check console for details)`
       }
 
       setSlots([...slots, ...(data || [])])

@@ -193,6 +193,113 @@ export const sendStudentBookingNotifications = async (bookingData: {
   })
 }
 
+// Cancellation email function
+interface CancellationEmailData {
+  to: string
+  name: string
+  date: string
+  time: string
+  appointmentType: 'business' | 'student' | 'in-person'
+  sessionType: 'free' | 'paid'
+  reason?: string
+  cancelledBy: 'admin' | 'ceo'
+}
+
+export const sendCancellationEmail = async (data: CancellationEmailData) => {
+  try {
+    console.log('📧 Sending cancellation email to:', data.to)
+
+    const { supabase } = await import("@/lib/supabase")
+
+    const response = await supabase.functions.invoke('send-booking-email', {
+      body: {
+        clientEmail: {
+          to: data.to,
+          name: data.name,
+          date: data.date,
+          time: data.time,
+          appointmentType: data.appointmentType,
+          sessionType: data.sessionType,
+          status: 'cancelled' as const,
+          subject: `Appointment Cancelled - ${new Date(data.date).toLocaleDateString()}`,
+          htmlContent: generateCancellationEmailHTML(data)
+        }
+      }
+    })
+
+    if (response.error) {
+      console.error('Cancellation email error:', response.error)
+      throw new Error(`Cancellation email error: ${response.error.message}`)
+    }
+
+    console.log('✅ Cancellation email sent successfully:', response.data)
+    return { success: true, data: response.data }
+
+  } catch (error) {
+    console.error('❌ Failed to send cancellation email:', error)
+    throw new Error(`Failed to send cancellation email: ${error.message}`)
+  }
+}
+
+const generateCancellationEmailHTML = (data: CancellationEmailData) => {
+  const formattedDate = new Date(data.date).toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  })
+
+  const sessionTypeText = data.sessionType === 'free' ? 'Free Session' : 'Paid Session'
+  const consultationType = data.appointmentType === 'student' ? 'student session' :
+                          data.appointmentType === 'business' ? 'business consultation' : 'in-person meeting'
+
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #dc2626;">Appointment Cancelled ❌</h2>
+
+      <p>Hi ${data.name},</p>
+
+      <p>We regret to inform you that your ${consultationType} with <strong>Irfan Malik</strong> has been cancelled.</p>
+
+      <div style="background: #fef2f2; border: 1px solid #fecaca; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <h3 style="margin-top: 0; color: #dc2626;">📅 Cancelled Appointment Details</h3>
+        <p><strong>Date:</strong> ${formattedDate}</p>
+        <p><strong>Time:</strong> ${data.time} EST</p>
+        <p><strong>Type:</strong> ${consultationType} (${sessionTypeText})</p>
+        <p style="color: #dc2626; font-weight: bold;">Status: CANCELLED</p>
+      </div>
+
+      ${data.reason ? `
+        <div style="background: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0;">
+          <h4 style="margin-top: 0; color: #374151;">Reason for Cancellation:</h4>
+          <p style="margin: 0; color: #374151;">${data.reason}</p>
+        </div>
+      ` : ''}
+
+      <div style="background: #eff6ff; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <h3 style="margin-top: 0; color: #2563eb;">📞 Need to Reschedule?</h3>
+        <p>We apologize for any inconvenience caused. If you'd like to schedule a new appointment, please visit our booking portal:</p>
+        <p><a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://irfanmalik.com'}" style="color: #2563eb; text-decoration: none; font-weight: bold;">
+          Book New Appointment →
+        </a></p>
+        <p style="font-size: 14px; color: #6b7280; margin-top: 15px;">
+          Or contact us directly for assistance with rescheduling.
+        </p>
+      </div>
+
+      <p>We value your time and understanding. Thank you for your patience.</p>
+
+      <p>Best regards,<br>
+      <strong>Irfan Malik</strong><br>
+      CEO, Xeven Solutions</p>
+
+      <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px; font-size: 12px; color: #6b7280;">
+        <p>This is an automated notification. Please do not reply to this email.</p>
+      </div>
+    </div>
+  `
+}
+
 const generateEmailHTML = (data: EmailData) => {
   const formattedDate = new Date(data.date).toLocaleDateString('en-US', {
     weekday: 'long',

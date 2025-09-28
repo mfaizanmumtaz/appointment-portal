@@ -25,3 +25,47 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# development and debugging files
+error.txt
+*.log
+*.temp
+*.tmp
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# project-specific temporary files
+admin-dashboard-files/
+ai-triage-log-files/
+experiment.ipynb
+
+# documentation that's not needed in repo (keep CLAUDE.md)
+AI_TRIAGE_DEPLOYMENT_FIX.md
+AI-TRIAGE-DEPLOYMENT.md
+CHAT_EMAIL_DEPLOYMENT.md
+OFFLINE_IMPLEMENTATION_GUIDE.md
+RACE_CONDITION_SOLUTION.md
+
+# supabase temp files
+supabase/.temp
+supabase/functions/.verify
+
+# local development schemas (keep the main one)
+# supabase-schema.sql (keeping this one as it might be needed)
+
+# Claude AI generated files
+.claude/
