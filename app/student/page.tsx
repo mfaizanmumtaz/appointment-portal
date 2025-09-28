@@ -14,6 +14,7 @@ import { StudentCalendar } from "@/components/student/student-calendar"
 import { StudentCheckout } from "@/components/student/student-checkout"
 import Link from "next/link"
 import { evaluateStudentRequest, saveTriageResult, getTriageMessage, formatTriageReasoning } from "@/lib/ai-triage-utils"
+import { sendStudentBookingNotifications } from "@/lib/meeting-utils"
 
 type Step = "form" | "options" | "calendar" | "checkout" | "triage" | "success" | "declined"
 type TriageResult = "approved" | "declined" | "uncertain"
@@ -171,6 +172,24 @@ export default function StudentPage() {
       console.error('Error creating pending appointment:', appointmentError)
       throw new Error('Failed to create appointment')
     }
+
+    // Send email notifications for pending student request
+    try {
+      await sendStudentBookingNotifications({
+        clientName: formData.firstName,
+        clientEmail: formData.email,
+        clientPhone: formData.phone,
+        sessionType: 'free',
+        appointmentType: 'student',
+        purpose: formData.purpose,
+        isConfirmed: false // Pending approval
+      })
+
+      console.log('📧 Student request emails sent successfully (client + admin)')
+    } catch (emailError) {
+      console.error('Failed to send student request emails:', emailError)
+      // Don't fail the booking if email fails
+    }
   }
 
   const handleSlotSelect = async (slot: any) => {
@@ -213,6 +232,27 @@ export default function StudentPage() {
     if (appointmentError) {
       console.error('Error saving appointment:', appointmentError)
       return
+    }
+
+    // Send email notifications for student slot booking
+    try {
+      await sendStudentBookingNotifications({
+        clientName: formData.firstName,
+        clientEmail: formData.email,
+        clientPhone: formData.phone,
+        date: slot.date,
+        time: slot.time,
+        sessionType: sessionType === 'online-free' ? 'free' : 'paid',
+        appointmentType: sessionType === 'in-person' ? 'in-person' : 'student',
+        meetingType: sessionType === 'in-person' ? 'in-person' : 'online',
+        purpose: formData.purpose,
+        isConfirmed: true // Slot bookings are auto-confirmed
+      })
+
+      console.log('📧 Student booking emails sent successfully (client + admin)')
+    } catch (emailError) {
+      console.error('Failed to send student booking emails:', emailError)
+      // Don't fail the booking if email fails
     }
 
     // Note: Slot will be automatically marked as unavailable by database trigger

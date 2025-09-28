@@ -61,6 +61,138 @@ export const sendMeetingEmail = async (data: EmailData) => {
   }
 }
 
+// New Resend-based booking email functions
+export const sendBookingEmails = async (emailData: {
+  clientEmail?: {
+    to: string
+    name: string
+    date?: string
+    time?: string
+    meetingType: 'online' | 'in-person'
+    meetingUrl?: string
+    venueAddress?: string
+    sessionType: 'free' | 'paid'
+    appointmentType: 'business' | 'student' | 'in-person'
+    status: 'confirmed' | 'pending'
+  }
+  adminEmail?: {
+    bookingType: 'business' | 'student' | 'in-person'
+    clientName: string
+    clientEmail: string
+    clientPhone: string
+    date?: string
+    time?: string
+    purpose: string
+    sessionType: 'free' | 'paid'
+    status: 'confirmed' | 'pending'
+  }
+}) => {
+  try {
+    console.log('📧 Sending booking emails via Resend')
+
+    const { supabase } = await import("@/lib/supabase")
+
+    const response = await supabase.functions.invoke('send-booking-email', {
+      body: emailData
+    })
+
+    if (response.error) {
+      console.error('Booking email error:', response.error)
+      throw new Error(`Booking email error: ${response.error.message}`)
+    }
+
+    console.log('✅ Booking emails sent successfully:', response.data)
+    return { success: true, data: response.data }
+
+  } catch (error) {
+    console.error('❌ Failed to send booking emails:', error)
+    throw new Error(`Failed to send booking emails: ${error.message}`)
+  }
+}
+
+// Convenience function for business bookings
+export const sendBusinessBookingNotifications = async (bookingData: {
+  clientName: string
+  clientEmail: string
+  clientPhone: string
+  date: string
+  time: string
+  sessionType: 'free' | 'paid'
+  meetingType: 'online' | 'in-person'
+  meetingUrl?: string
+  venueAddress?: string
+  purpose: string
+  isConfirmed: boolean
+}) => {
+  return await sendBookingEmails({
+    clientEmail: {
+      to: bookingData.clientEmail,
+      name: bookingData.clientName,
+      date: bookingData.date,
+      time: bookingData.time,
+      meetingType: bookingData.meetingType,
+      meetingUrl: bookingData.meetingUrl,
+      venueAddress: bookingData.venueAddress,
+      sessionType: bookingData.sessionType,
+      appointmentType: 'business',
+      status: bookingData.isConfirmed ? 'confirmed' : 'pending'
+    },
+    adminEmail: {
+      bookingType: 'business',
+      clientName: bookingData.clientName,
+      clientEmail: bookingData.clientEmail,
+      clientPhone: bookingData.clientPhone,
+      date: bookingData.date,
+      time: bookingData.time,
+      purpose: bookingData.purpose,
+      sessionType: bookingData.sessionType,
+      status: bookingData.isConfirmed ? 'confirmed' : 'pending'
+    }
+  })
+}
+
+// Convenience function for student bookings
+export const sendStudentBookingNotifications = async (bookingData: {
+  clientName: string
+  clientEmail: string
+  clientPhone: string
+  date?: string
+  time?: string
+  sessionType: 'free' | 'paid'
+  appointmentType: 'student' | 'in-person'
+  meetingType?: 'online' | 'in-person'
+  meetingUrl?: string
+  venueAddress?: string
+  purpose: string
+  isConfirmed: boolean
+}) => {
+  return await sendBookingEmails({
+    clientEmail: {
+      to: bookingData.clientEmail,
+      name: bookingData.clientName,
+      date: bookingData.date,
+      time: bookingData.time,
+      meetingType: bookingData.meetingType || 'online',
+      meetingUrl: bookingData.meetingUrl,
+      venueAddress: bookingData.venueAddress,
+      sessionType: bookingData.sessionType,
+      appointmentType: bookingData.appointmentType,
+      status: bookingData.isConfirmed ? 'confirmed' : 'pending'
+    },
+    adminEmail: {
+      bookingType: bookingData.appointmentType,
+      clientName: bookingData.clientName,
+      clientEmail: bookingData.clientEmail,
+      clientPhone: bookingData.clientPhone,
+      date: bookingData.date,
+      time: bookingData.time,
+      purpose: bookingData.purpose,
+      sessionType: bookingData.sessionType,
+      status: bookingData.isConfirmed ? 'confirmed' : 'pending'
+    }
+  })
+}
+
 const generateEmailHTML = (data: EmailData) => {
   const formattedDate = new Date(data.date).toLocaleDateString('en-US', {
     weekday: 'long',

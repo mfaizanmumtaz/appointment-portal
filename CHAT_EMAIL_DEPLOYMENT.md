@@ -123,3 +123,21 @@ Potential improvements:
 - Rich text reply support
 - Attachment support
 - Email threading/conversation view
+
+
+
+
+ Quick Testing Commands:
+
+  # Set your test email
+  npx supabase secrets set CEO_EMAIL="test@example.com"     
+
+  # Deploy the updated functions
+  npx supabase functions deploy send-booking-email
+  npx supabase functions deploy send-chat-reply
+
+  # Check what's currently set
+  npx supabase secrets list
+
+  This makes testing super easy - just change the
+  CEO_EMAIL secret and redeploy!

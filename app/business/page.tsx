@@ -24,7 +24,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { MeetingDetails } from "@/components/ui/meeting-details"
-import { generateZoomLink, generateVenueAddress, sendMeetingEmail } from "@/lib/meeting-utils"
+import { generateZoomLink, generateVenueAddress, sendBusinessBookingNotifications } from "@/lib/meeting-utils"
 
 type Step = "contact" | "meeting-type" | "calendar" | "payment" | "confirmation"
 type MeetingMode = "online" | "in-person"
@@ -268,31 +268,26 @@ export default function BusinessPage() {
     // Note: Slot will be automatically marked as unavailable by database trigger
     // No need to manually update is_available field anymore
 
-    // Send instant email with meeting details
-    const ENABLE_EMAIL_SENDING = false // TODO: Set to true when Edge Function is fixed
+    // Send booking confirmation and admin notification emails
+    try {
+      await sendBusinessBookingNotifications({
+        clientName: bookingData.firstName,
+        clientEmail: bookingData.email,
+        clientPhone: bookingData.phone,
+        date: slot.date,
+        time: slot.time,
+        sessionType: slot.type === 'paid' ? 'paid' : 'free',
+        meetingType: bookingData.meetingMode!,
+        meetingUrl: meetingUrl || undefined,
+        venueAddress: venueAddress || undefined,
+        purpose: bookingData.purpose,
+        isConfirmed: true // Business bookings are auto-confirmed
+      })
 
-    if (ENABLE_EMAIL_SENDING) {
-      try {
-        await sendMeetingEmail({
-          to: bookingData.email,
-          name: bookingData.firstName,
-          date: slot.date,
-          time: slot.time,
-          meetingType: bookingData.meetingMode!,
-          meetingUrl: meetingUrl || undefined,
-          venueAddress: venueAddress || undefined,
-          duration: bookingData.duration || undefined,
-          sessionType: slot.type === 'paid' ? 'paid' : 'free',
-          appointmentType: 'business'
-        })
-
-        console.log('📧 Meeting confirmation email sent successfully')
-      } catch (emailError) {
-        console.error('Failed to send confirmation email:', emailError)
-        // Don't fail the booking if email fails
-      }
-    } else {
-      console.log('📧 Email sending disabled - appointment created successfully without email')
+      console.log('📧 Booking emails sent successfully (client + admin)')
+    } catch (emailError) {
+      console.error('Failed to send booking emails:', emailError)
+      // Don't fail the booking if email fails
     }
   }
 

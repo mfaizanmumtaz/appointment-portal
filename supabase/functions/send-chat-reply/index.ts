@@ -179,10 +179,13 @@ serve(async (req) => {
   try {
     console.log("🚀 Chat Reply Email Function started");
     const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+    const CEO_EMAIL = Deno.env.get("CEO_EMAIL") || "mfaizanmumtaz999@gmail.com"; // Fallback to default
 
     if (!RESEND_API_KEY) {
       throw new Error("RESEND_API_KEY not configured. Please set this secret in Supabase.");
     }
+
+    console.log("📧 CEO reply-to email configured as:", CEO_EMAIL);
 
     const emailData: ChatReplyEmailRequest = await req.json();
     console.log("📨 Email request for:", emailData.to);
@@ -216,8 +219,8 @@ CEO & Founder, Xeven Solutions`;
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "Irfan Malik - Xeven Solutions <onboarding@resend.dev>",
-        reply_to: "irfan@xevensolutions.com",
+        from: "Irfan Malik - Xeven Solutions <irfan@faziar.xyz>",
+        reply_to: CEO_EMAIL,
         to: [emailData.to],
         subject: subject,
         html: htmlContent,
