@@ -16,6 +16,7 @@ import { Calendar, Clock, DollarSign, Users, Plus, Edit, Trash2, CalendarDays, E
 import { useOffline } from "@/hooks/use-offline"
 import { OfflineStatus, ErrorBanner } from "@/components/ui/offline-status"
 import { useToast } from "@/hooks/use-toast"
+import { supabase } from "@/lib/supabase"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -174,9 +175,9 @@ export function AdminSlots() {
         return
       }
 
-      const { supabase } = await import("@/lib/supabase")
+      // Using singleton supabase client
 
-      // Check if slot already exists
+      // Check if slot already exists with the new unique constraint
       const { data: existingSlot } = await supabase
         .from('time_slots')
         .select('id')
@@ -184,7 +185,7 @@ export function AdminSlots() {
         .eq('time', newSlot.time)
         .eq('slot_type', newSlot.slot_type)
         .eq('session_type', newSlot.session_type)
-        .single()
+        .maybeSingle()
 
       if (existingSlot) {
         toast({
@@ -195,7 +196,7 @@ export function AdminSlots() {
         return
       }
 
-      // Create new slot
+      // Create new slot with proper typing
       const { data, error } = await supabase
         .from('time_slots')
         .insert({
@@ -204,7 +205,7 @@ export function AdminSlots() {
           is_available: true,
           slot_type: newSlot.slot_type,
           session_type: newSlot.session_type,
-        })
+        } as any)
         .select()
         .single()
 
@@ -261,14 +262,14 @@ export function AdminSlots() {
     setDeleteConfirm({isOpen: false, type: 'single'})
 
     try {
-      const { supabase } = await import("@/lib/supabase")
+      // Using singleton supabase client
 
       // Get the slot details first to clean up related triage logs
       const { data: slotData } = await supabase
         .from('time_slots')
         .select('date, time')
         .eq('id', id)
-        .single()
+        .single() as any
 
       // Delete the slot first
       const { error: slotError } = await supabase
@@ -291,7 +292,7 @@ export function AdminSlots() {
         const { error: triageError } = await supabase
           .from('student_triage_log')
           .delete()
-          .eq('created_at', slotData.date) // Clean up triage logs from the same date
+          .eq('created_at', (slotData as any).date) // Clean up triage logs from the same date
 
         if (triageError) {
           console.warn('Warning: Could not clean up some triage logs:', triageError)
@@ -393,7 +394,7 @@ export function AdminSlots() {
       }
 
       // Check for conflicts with existing appointments and slots
-      const { supabase } = await import("@/lib/supabase")
+      // Using singleton supabase client
 
       if (generatedSlots.length > 0) {
         // Check existing appointments using date range to avoid URL length issues
@@ -405,10 +406,10 @@ export function AdminSlots() {
           .select('date, time, status')
           .gte('date', startDate.toISOString().split('T')[0])
           .lte('date', endDate.toISOString().split('T')[0])
-          .in('status', ['confirmed', 'pending'])
+          .in('status', ['confirmed', 'pending']) as any
 
         const appointmentConflicts = new Set(
-          existingAppointments?.map(apt => `${apt.date}-${apt.time}`) || []
+          existingAppointments?.map((apt: any) => `${apt.date}-${apt.time}`) || []
         )
 
         // Check existing slots using date range and then filter in memory for better performance
@@ -416,12 +417,12 @@ export function AdminSlots() {
           .from('time_slots')
           .select('date, time, slot_type, session_type')
           .gte('date', startDate.toISOString().split('T')[0])
-          .lte('date', endDate.toISOString().split('T')[0])
+          .lte('date', endDate.toISOString().split('T')[0]) as any
 
         const slotConflicts = new Set()
         if (existingSlots) {
           for (const existingSlot of existingSlots) {
-            slotConflicts.add(`${existingSlot.date}-${existingSlot.time}-${existingSlot.slot_type}-${existingSlot.session_type}`)
+            slotConflicts.add(`${(existingSlot as any).date}-${(existingSlot as any).time}-${(existingSlot as any).slot_type}-${(existingSlot as any).session_type}`)
           }
         }
 
@@ -465,7 +466,6 @@ export function AdminSlots() {
 
   const confirmBulkCreation = async () => {
     try {
-      const { supabase } = await import("@/lib/supabase")
 
       // Check for existing appointments that would conflict using date range
       const startDate = previewSlots.reduce((min, slot) =>
@@ -480,20 +480,20 @@ export function AdminSlots() {
         .select('date, time, status')
         .gte('date', startDate)
         .lte('date', endDate)
-        .in('status', ['confirmed', 'pending'])
+        .in('status', ['confirmed', 'pending']) as any
 
       // Check for existing time slots using date range approach for better performance
       const { data: allExistingSlots } = await supabase
         .from('time_slots')
         .select('id, date, time, slot_type, session_type')
         .gte('date', startDate)
-        .lte('date', endDate)
+        .lte('date', endDate) as any
 
       // Filter to only slots that exactly match our preview slots
-      const existingSlots = []
+      const existingSlots: any[] = []
       if (allExistingSlots) {
         for (const previewSlot of previewSlots) {
-          const matchingSlot = allExistingSlots.find(existing =>
+          const matchingSlot = allExistingSlots.find((existing: any) =>
             existing.date === previewSlot.date &&
             existing.time === previewSlot.time &&
             existing.slot_type === previewSlot.slot_type &&
@@ -507,12 +507,12 @@ export function AdminSlots() {
 
       // Filter out slots that have confirmed/pending appointments
       const appointmentConflicts = new Set(
-        existingAppointments?.map(apt => `${apt.date}-${apt.time}`) || []
+        existingAppointments?.map((apt: any) => `${apt.date}-${apt.time}`) || []
       )
 
       // Filter out slots that already exist (exact match on date, time, slot_type, session_type)
       const slotConflicts = new Set(
-        existingSlots?.map(slot => `${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`) || []
+        existingSlots?.map((slot: any) => `${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`) || []
       )
 
       // If delete-and-create is selected, delete conflicting slots first
@@ -593,7 +593,7 @@ export function AdminSlots() {
           appointmentConflicts.has(`${slot.date}-${slot.time}`)
         ).length
         const duplicateCount = previewSlots.filter(slot =>
-          slotConflicts.has(`${slot.date}-${slot.time}`)
+          slotConflicts.has(`${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`)
         ).length
 
         let message = 'No new slots to create!'
@@ -612,14 +612,14 @@ export function AdminSlots() {
       }
 
       // Insert new slots one by one to handle any remaining conflicts gracefully
-      const insertedSlots = []
-      const insertErrors = []
+      const insertedSlots: any[] = []
+      const insertErrors: string[] = []
 
       for (const slotData of slotsToInsert) {
         try {
           const { data: insertedSlot, error: insertError } = await supabase
             .from('time_slots')
-            .insert(slotData)
+            .insert(slotData as any)
             .select()
             .single()
 
@@ -633,9 +633,9 @@ export function AdminSlots() {
           } else if (insertedSlot) {
             insertedSlots.push(insertedSlot)
           }
-        } catch (err) {
+        } catch (err: any) {
           console.error('Error inserting slot:', err)
-          insertErrors.push(`${slotData.date} ${slotData.time}: ${err.message || 'Unknown error'}`)
+          insertErrors.push(`${slotData.date} ${slotData.time}: ${err?.message || 'Unknown error'}`)
         }
       }
 
@@ -705,7 +705,7 @@ export function AdminSlots() {
     setDeleteConfirm({isOpen: false, type: 'bulk'})
 
     try {
-      const { supabase } = await import("@/lib/supabase")
+      // Using singleton supabase client
 
       // Get date range of slots being deleted to clean up triage logs
       const slotsToDelete = slots.filter((slot) => selectedSlots.includes(slot.id))

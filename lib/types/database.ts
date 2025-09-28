@@ -5,6 +5,85 @@ export type SlotType = 'business' | 'student' | 'both'
 export type MeetingType = 'online' | 'in-person'
 export type MessageStatus = 'unread' | 'read' | 'replied'
 
+// Supabase Database Types
+export interface Database {
+  public: {
+    Tables: {
+      time_slots: {
+        Row: TimeSlot
+        Insert: Omit<TimeSlot, 'id' | 'created_at'> & {
+          id?: string
+          created_at?: string
+        }
+        Update: Partial<Omit<TimeSlot, 'id' | 'created_at'>>
+      }
+      appointments: {
+        Row: Appointment
+        Insert: Omit<Appointment, 'id' | 'created_at'> & {
+          id?: string
+          created_at?: string
+        }
+        Update: Partial<Omit<Appointment, 'id' | 'created_at'>>
+      }
+      gallery_images: {
+        Row: GalleryImage
+        Insert: Omit<GalleryImage, 'id' | 'created_at'> & {
+          id?: string
+          created_at?: string
+        }
+        Update: Partial<Omit<GalleryImage, 'id' | 'created_at'>>
+      }
+      admin_settings: {
+        Row: AdminSetting
+        Insert: Omit<AdminSetting, 'id' | 'updated_at'> & {
+          id?: string
+          updated_at?: string
+        }
+        Update: Partial<Omit<AdminSetting, 'id' | 'updated_at'>>
+      }
+      instant_messages: {
+        Row: InstantMessage
+        Insert: Omit<InstantMessage, 'id' | 'created_at'> & {
+          id?: string
+          created_at?: string
+        }
+        Update: Partial<Omit<InstantMessage, 'id' | 'created_at'>>
+      }
+      student_triage_log: {
+        Row: StudentTriageLog
+        Insert: Omit<StudentTriageLog, 'id' | 'created_at'> & {
+          id?: string
+          created_at?: string
+        }
+        Update: Partial<Omit<StudentTriageLog, 'id' | 'created_at'>>
+      }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      book_slot_atomically: {
+        Args: {
+          p_slot_id: string
+        }
+        Returns: boolean
+      }
+      release_slot_booking: {
+        Args: {
+          p_slot_id: string
+        }
+        Returns: boolean
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
+}
+
 export interface Appointment {
   id: string
   type: AppointmentType
@@ -80,39 +159,3 @@ export interface StudentTriageLog {
   created_at: string
 }
 
-export interface Database {
-  public: {
-    Tables: {
-      appointments: {
-        Row: Appointment
-        Insert: Omit<Appointment, 'id' | 'created_at'>
-        Update: Partial<Omit<Appointment, 'id' | 'created_at'>>
-      }
-      time_slots: {
-        Row: TimeSlot
-        Insert: Omit<TimeSlot, 'id' | 'created_at'>
-        Update: Partial<Omit<TimeSlot, 'id' | 'created_at'>>
-      }
-      gallery_images: {
-        Row: GalleryImage
-        Insert: Omit<GalleryImage, 'id' | 'created_at'>
-        Update: Partial<Omit<GalleryImage, 'id' | 'created_at'>>
-      }
-      admin_settings: {
-        Row: AdminSetting
-        Insert: Omit<AdminSetting, 'id' | 'updated_at'>
-        Update: Partial<Omit<AdminSetting, 'id' | 'updated_at'>>
-      }
-      instant_messages: {
-        Row: InstantMessage
-        Insert: Omit<InstantMessage, 'id' | 'created_at'>
-        Update: Partial<Omit<InstantMessage, 'id' | 'created_at'>>
-      }
-      student_triage_log: {
-        Row: StudentTriageLog
-        Insert: Omit<StudentTriageLog, 'id' | 'created_at'>
-        Update: Partial<Omit<StudentTriageLog, 'id' | 'created_at'>>
-      }
-    }
-  }
-}
