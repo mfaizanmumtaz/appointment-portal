@@ -9,17 +9,7 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  // Configure for Replit environment
-  experimental: {
-    allowedHosts: [
-      'localhost',
-      '127.0.0.1',
-      '0.0.0.0',
-      '.replit.dev',
-      '.replit.com',
-      '.replit-staging.com'
-    ]
-  },
+  // Configure for Replit environment - allowedHosts moved to experimental in newer versions
   // Allow all hosts for development in Replit
   async headers() {
     return [
