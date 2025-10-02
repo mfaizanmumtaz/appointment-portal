@@ -20,6 +20,10 @@ export interface TimeSlot {
   is_available: boolean
   slot_type: "business" | "student" | "both"
   session_type: "free" | "paid"
+  meeting_mode: "online" | "in-person"
+  duration: number
+  location_id?: string | null  // For in-person meetings
+  created_at?: string
 }
 
 export interface BookingStats {
@@ -81,7 +85,7 @@ export const fetchBookingStats = async (type: 'business' | 'student') => {
       return { totalBookings: 0, pendingApprovals: 0 }
     }
 
-    const pending = appointments?.filter(a => a.status === 'pending') || []
+    const pending = appointments?.filter((a: any) => a.status === 'pending') || []
 
     return {
       totalBookings: appointments?.length || 0,

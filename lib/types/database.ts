@@ -4,6 +4,9 @@ export type AppointmentStatus = 'pending' | 'confirmed' | 'completed' | 'cancell
 export type SlotType = 'business' | 'student' | 'both'
 export type MeetingType = 'online' | 'in-person'
 export type MessageStatus = 'unread' | 'read' | 'replied'
+export type EventInvitationStatus = 'pending' | 'confirmed' | 'rejected'
+export type AudienceSize = '<50' | '50-100' | '100-250' | '250-500' | '500+'
+export type TravelExpenses = 'Yes' | 'No' | 'Partial'
 
 // Supabase Database Types
 export interface Database {
@@ -56,6 +59,22 @@ export interface Database {
           created_at?: string
         }
         Update: Partial<Omit<StudentTriageLog, 'id' | 'created_at'>>
+      }
+      locations: {
+        Row: Location
+        Insert: Omit<Location, 'id' | 'created_at'> & {
+          id?: string
+          created_at?: string
+        }
+        Update: Partial<Omit<Location, 'id' | 'created_at'>>
+      }
+      event_invitations: {
+        Row: EventInvitation
+        Insert: Omit<EventInvitation, 'id' | 'created_at'> & {
+          id?: string
+          created_at?: string
+        }
+        Update: Partial<Omit<EventInvitation, 'id' | 'created_at'>>
       }
     }
     Views: {
@@ -111,6 +130,10 @@ export interface TimeSlot {
   is_available: boolean
   slot_type: SlotType
   session_type: SessionType
+  meeting_mode: MeetingType
+  duration: number
+  location_id?: string | null  // For in-person meetings
+  booking_status: 'available' | 'booking' | 'booked'
   created_at: string
 }
 
@@ -156,6 +179,32 @@ export interface StudentTriageLog {
   manual_notes?: string | null
   reviewed_by?: string | null
   reviewed_at?: string | null
+  created_at: string
+}
+
+export interface Location {
+  id: string
+  name: string
+  created_at: string
+}
+
+export interface EventInvitation {
+  id: string
+  event_title: string
+  organiser_name: string
+  event_date: string
+  event_time: string
+  venue: string
+  audience_size: AudienceSize
+  travel_expenses: TravelExpenses
+  event_details: string
+  attachment_url?: string | null
+  attachment_name?: string | null
+  status: EventInvitationStatus
+  rejection_reason?: string | null
+  admin_notes?: string | null
+  confirmed_at?: string | null
+  rejected_at?: string | null
   created_at: string
 }
 

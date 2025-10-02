@@ -234,25 +234,39 @@ export default function StudentPage() {
       return
     }
 
-    // Send email notifications for student slot booking
-    try {
-      await sendStudentBookingNotifications({
-        clientName: formData.firstName,
-        clientEmail: formData.email,
-        clientPhone: formData.phone,
+    // Send emails only for paid sessions, free sessions go to approval queue
+    if (sessionType !== 'online-free') {
+      try {
+        await sendStudentBookingNotifications({
+          clientName: formData.firstName,
+          clientEmail: formData.email,
+          clientPhone: formData.phone,
+          date: slot.date,
+          time: slot.time,
+          sessionType: 'paid',
+          appointmentType: sessionType === 'in-person' ? 'in-person' : 'student',
+          meetingType: sessionType === 'in-person' ? 'in-person' : 'online',
+          purpose: formData.purpose,
+          isConfirmed: true // Paid sessions are auto-confirmed
+        })
+
+        console.log('📧 Paid student session emails sent successfully (client + admin)')
+      } catch (emailError) {
+        console.error('Failed to send student booking emails:', emailError)
+        // Don't fail the booking if email fails
+      }
+    } else {
+      // Free session - no immediate email, just log for CEO approval queue
+      console.log('🔄 Free student session request queued for CEO approval:', {
+        client: formData.firstName,
+        email: formData.email,
         date: slot.date,
         time: slot.time,
-        sessionType: sessionType === 'online-free' ? 'free' : 'paid',
-        appointmentType: sessionType === 'in-person' ? 'in-person' : 'student',
-        meetingType: sessionType === 'in-person' ? 'in-person' : 'online',
-        purpose: formData.purpose,
-        isConfirmed: true // Slot bookings are auto-confirmed
+        purpose: formData.purpose
       })
 
-      console.log('📧 Student booking emails sent successfully (client + admin)')
-    } catch (emailError) {
-      console.error('Failed to send student booking emails:', emailError)
-      // Don't fail the booking if email fails
+      // TODO: Add notification to CEO about pending free session request
+      // This will be handled by the requests queue system
     }
 
     // Note: Slot will be automatically marked as unavailable by database trigger

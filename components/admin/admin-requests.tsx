@@ -13,6 +13,7 @@ import type { MeetingType } from "@/lib/types/database"
 import { useOffline } from "@/hooks/use-offline"
 import { OfflineStatus, ErrorBanner } from "@/components/ui/offline-status"
 import { useToast } from "@/hooks/use-toast"
+import { sendApprovalEmail, sendCancellationEmail, sendDeclineEmail } from "@/lib/meeting-utils"
 
 
 interface Appointment {
@@ -25,6 +26,7 @@ interface Appointment {
   company?: string | null
   date: string
   time: string
+  slot_id?: string | null
   status: string
   meeting_type?: MeetingType | null
   meeting_url?: string | null
@@ -94,6 +96,17 @@ export function AdminRequests() {
     try {
       const { supabase } = await import("@/lib/supabase")
 
+      // Get the request details before updating
+      const request = requests.find(r => r.id === requestId)
+      if (!request) {
+        toast({
+          title: "Error",
+          description: "Request not found",
+          variant: "destructive"
+        })
+        return
+      }
+
       const updateData = {
         status: 'confirmed',
         meeting_type: meetingDetails.meeting_type,
@@ -109,7 +122,34 @@ export function AdminRequests() {
 
       if (error) {
         console.error('Error approving request:', error)
+        toast({
+          title: "Error",
+          description: "Failed to approve request",
+          variant: "destructive"
+        })
         return
+      }
+
+      // Send approval email to client
+      try {
+        await sendApprovalEmail({
+          to: request.email,
+          name: request.name,
+          date: request.date,
+          time: request.time,
+          appointmentType: request.type === 'business' ? 'business' : 'student',
+          sessionType: 'free',
+          meetingType: meetingDetails.meeting_type || 'online',
+          meetingUrl: meetingDetails.meeting_url || undefined,
+          venueAddress: meetingDetails.venue_address || undefined,
+          purpose: request.purpose || 'Free consultation session',
+          status: 'approved'
+        })
+
+        console.log('✅ Approval email sent to client')
+      } catch (emailError) {
+        console.error('Failed to send approval email:', emailError)
+        // Don't fail the approval if email fails, just log it
       }
 
       setRequests((prev) => prev.filter((req) => req.id !== requestId))
@@ -123,7 +163,7 @@ export function AdminRequests() {
       })
       toast({
         title: "Success",
-        description: "Request approved and meeting details saved!",
+        description: "Request approved and confirmation email sent!",
         variant: "default"
       })
     } catch (error) {
@@ -146,6 +186,18 @@ export function AdminRequests() {
     try {
       const { supabase } = await import("@/lib/supabase")
 
+      // Get the request details before updating
+      const request = requests.find(r => r.id === requestId)
+      if (!request) {
+        toast({
+          title: "Error",
+          description: "Request not found",
+          variant: "destructive"
+        })
+        return
+      }
+
+      // Cancel the appointment
       const { error } = await supabase
         .from('appointments')
         .update({ status: 'cancelled' })
@@ -153,14 +205,66 @@ export function AdminRequests() {
 
       if (error) {
         console.error('Error declining request:', error)
+        toast({
+          title: "Error",
+          description: "Failed to decline request",
+          variant: "destructive"
+        })
         return
+      }
+
+      // Delete the associated slot to free it up for other users
+      if (request.slot_id) {
+        const { error: slotError } = await supabase
+          .from('time_slots')
+          .delete()
+          .eq('id', request.slot_id)
+
+        if (slotError) {
+          console.error('Error deleting associated slot:', slotError)
+          // Log but don't fail the decline operation
+          console.warn('⚠️ Slot deletion failed, but request was still declined')
+        } else {
+          console.log('✅ Associated slot deleted successfully - now available for other users')
+        }
+      } else {
+        console.warn('⚠️ No slot_id found for this request - slot not deleted')
+      }
+
+      // Send decline email to client using proper decline template (not cancellation)
+      try {
+        await sendDeclineEmail({
+          to: request.email,
+          name: request.name,
+          date: request.date,
+          time: request.time,
+          appointmentType: request.type === 'business' ? 'business' : 'student',
+          sessionType: 'free',
+          reason: responseNote || 'Your free session request could not be accommodated at this time.'
+        })
+
+        console.log('✅ Decline email sent to client')
+      } catch (emailError) {
+        console.error('Failed to send decline email:', emailError)
+        // Don't fail the decline if email fails, just log it
       }
 
       setRequests((prev) => prev.filter((req) => req.id !== requestId))
       setSelectedRequest(null)
       setResponseNote("")
+
+      toast({
+        title: "Success",
+        description: `Request declined and decline email sent. ${request.slot_id ? 'Slot freed up for other users.' : ''}`,
+        variant: "default"
+      })
     } catch (error) {
       console.error('Error:', error)
+      toast({
+        title: "Error",
+        description: "Failed to decline request",
+        variant: "destructive"
+      })
     }
   }
 

@@ -8,7 +8,8 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Settings, DollarSign, Clock, MessageSquare, Bell } from "lucide-react"
+import { Settings, DollarSign, Clock, MessageSquare, Bell, MapPin } from "lucide-react"
+import { AdminLocations } from "./admin-locations"
 
 export function AdminSettings() {
   const [settings, setSettings] = useState({
@@ -62,7 +63,7 @@ export function AdminSettings() {
       </div>
 
       <Tabs defaultValue="pricing" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="pricing">
             <DollarSign className="w-4 h-4 mr-2" />
             Pricing
@@ -70,6 +71,10 @@ export function AdminSettings() {
           <TabsTrigger value="availability">
             <Clock className="w-4 h-4 mr-2" />
             Availability
+          </TabsTrigger>
+          <TabsTrigger value="locations">
+            <MapPin className="w-4 h-4 mr-2" />
+            Locations
           </TabsTrigger>
           <TabsTrigger value="notifications">
             <Bell className="w-4 h-4 mr-2" />
@@ -382,6 +387,10 @@ export function AdminSettings() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="locations">
+          <AdminLocations />
         </TabsContent>
       </Tabs>
 

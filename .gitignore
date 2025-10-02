@@ -69,3 +69,4 @@ supabase/functions/.verify
 
 # Claude AI generated files
 .claude/
+appointment-portal-v3/

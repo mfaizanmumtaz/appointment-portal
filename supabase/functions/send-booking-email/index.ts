@@ -11,14 +11,17 @@ interface BookingEmailRequest {
   clientEmail?: {
     to: string
     name: string
-    date: string
-    time: string
-    meetingType: 'online' | 'in-person'
+    date?: string
+    time?: string
+    meetingType?: 'online' | 'in-person'
     meetingUrl?: string
     venueAddress?: string
     sessionType: 'free' | 'paid'
     appointmentType: 'business' | 'student' | 'in-person'
-    status: 'confirmed' | 'pending'
+    status: 'confirmed' | 'pending' | 'cancelled' | 'declined' | 'rejected'
+    subject?: string
+    htmlContent?: string
+    reason?: string
   }
 
   // Admin notification
@@ -36,6 +39,11 @@ interface BookingEmailRequest {
 }
 
 function generateClientConfirmationHTML(data: any): string {
+  // If custom HTML content is provided, use it (for cancellation, decline, rejection emails)
+  if (data.htmlContent) {
+    return data.htmlContent;
+  }
+
   const isConfirmed = data.status === 'confirmed';
   const statusText = isConfirmed ? 'Confirmed' : 'Pending Approval';
   const statusColor = isConfirmed ? '#10b981' : '#f59e0b';
@@ -394,7 +402,9 @@ serve(async (req) => {
     if (emailData.clientEmail) {
       console.log("📧 Sending client confirmation email");
 
-      const clientSubject = `${emailData.clientEmail.status === 'confirmed' ? 'Confirmed' : 'Received'}: Your ${emailData.clientEmail.appointmentType} Session ${emailData.clientEmail.date ? `on ${new Date(emailData.clientEmail.date).toLocaleDateString()}` : 'Request'}`;
+      // Use custom subject if provided, otherwise generate default
+      const clientSubject = emailData.clientEmail.subject ||
+        `${emailData.clientEmail.status === 'confirmed' ? 'Confirmed' : 'Received'}: Your ${emailData.clientEmail.appointmentType} Session ${emailData.clientEmail.date ? `on ${new Date(emailData.clientEmail.date).toLocaleDateString()}` : 'Request'}`;
 
       const clientResponse = await fetch("https://api.resend.com/emails", {
         method: "POST",

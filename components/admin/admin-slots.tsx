@@ -12,7 +12,7 @@ import { Switch } from "@/components/ui/switch"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Textarea } from "@/components/ui/textarea"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { Calendar, Clock, DollarSign, Users, Plus, Edit, Trash2, CalendarDays, Eye, AlertTriangle, RefreshCw } from "lucide-react"
+import { Calendar, Clock, DollarSign, Users, Plus, Edit, Trash2, CalendarDays, Eye, AlertTriangle, RefreshCw, MapPin } from "lucide-react"
 import { useOffline } from "@/hooks/use-offline"
 import { OfflineStatus, ErrorBanner } from "@/components/ui/offline-status"
 import { useToast } from "@/hooks/use-toast"
@@ -35,7 +35,14 @@ interface TimeSlot {
   is_available: boolean
   slot_type: "business" | "student" | "both"
   session_type: "free" | "paid"
+  meeting_mode: "online" | "in-person"
+  duration: 15 | 30 | 45
+  location_id?: string | null
   created_at: string
+  locations?: {
+    id: string
+    name: string
+  } | null
 }
 
 interface BulkCreationSettings {
@@ -50,6 +57,9 @@ interface BulkCreationSettings {
   selectedDays: string[]
   slotType: "business" | "student" | "both"
   sessionType: "free" | "paid"
+  meetingMode: "online" | "in-person"
+  duration: 15 | 30 | 45
+  locationId?: string | null  // For in-person meetings
 }
 
 
@@ -68,6 +78,15 @@ export function AdminSlots() {
   const [loading, setLoading] = useState(true)
   const [isCreating, setIsCreating] = useState(false)
   const [isBulkCreating, setIsBulkCreating] = useState(false)
+  const [bulkCreationStatus, setBulkCreationStatus] = useState<{
+    isProcessing: boolean
+    step: 'checking' | 'deleting' | 'creating' | 'complete'
+    message: string
+  }>({
+    isProcessing: false,
+    step: 'complete',
+    message: ''
+  })
   const { toast } = useToast()
   const [deleteConfirm, setDeleteConfirm] = useState<{isOpen: boolean, slotId?: string, count?: number, type: 'single' | 'bulk'}>({isOpen: false, type: 'single'})
 
@@ -81,6 +100,7 @@ export function AdminSlots() {
     executeWithOfflineCheck
   } = useOffline({ autoRefresh: false, refreshInterval: 30000 })
   const [showPreview, setShowPreview] = useState(false)
+  const [isGeneratingPreview, setIsGeneratingPreview] = useState(false)
   const [selectedSlots, setSelectedSlots] = useState<string[]>([])
   const [previewSlots, setPreviewSlots] = useState<TimeSlot[]>([])
   const [conflictResolution, setConflictResolution] = useState<'skip' | 'delete-and-create'>('skip')
@@ -90,7 +110,14 @@ export function AdminSlots() {
     time: "09:00",
     slot_type: "business" as "business" | "student" | "both",
     session_type: "free" as "free" | "paid",
+    meeting_mode: "online" as "online" | "in-person",
+    duration: 30 as 15 | 30 | 45,
+    location_id: null as string | null,
   })
+
+  // State for locations
+  const [locations, setLocations] = useState<any[]>([])
+  const [loadingLocations, setLoadingLocations] = useState(false)
 
   // Helper to get minimum date/time for validation
   const getMinDateTime = () => {
@@ -103,11 +130,13 @@ export function AdminSlots() {
 
   useEffect(() => {
     executeWithOfflineCheck(fetchSlots)
+    fetchLocations() // Always fetch locations on component mount
   }, [])
 
   const handleManualRefresh = async () => {
     setIsRefreshing(true)
     await executeWithOfflineCheck(fetchSlots)
+    await fetchLocations() // Also refresh locations
     setIsRefreshing(false)
   }
 
@@ -118,7 +147,13 @@ export function AdminSlots() {
 
     const { data, error } = await supabase
       .from('time_slots')
-      .select('*')
+      .select(`
+        *,
+        locations (
+          id,
+          name
+        )
+      `)
       .order('date', { ascending: true })
       .order('time', { ascending: true })
 
@@ -148,7 +183,38 @@ export function AdminSlots() {
     selectedDays: ["monday", "tuesday", "wednesday", "thursday", "friday"],
     slotType: "business",
     sessionType: "free",
+    meetingMode: "online",
+    duration: 30,
+    locationId: null,
   })
+
+  // Fetch locations when component mounts or when meeting mode changes to in-person
+  useEffect(() => {
+    if (newSlot.meeting_mode === 'in-person' || bulkSettings.meetingMode === 'in-person') {
+      fetchLocations()
+    }
+  }, [newSlot.meeting_mode, bulkSettings.meetingMode])
+
+  const fetchLocations = async () => {
+    try {
+      setLoadingLocations(true)
+      const { data, error } = await supabase
+        .from('locations')
+        .select('*')
+        .order('name', { ascending: true })
+
+      if (error) {
+        console.error('Error fetching locations:', error)
+        return
+      }
+
+      setLocations(data || [])
+    } catch (error) {
+      console.error('Error:', error)
+    } finally {
+      setLoadingLocations(false)
+    }
+  }
 
   // Filter out past dates from bulk generation
   const filterFutureDates = (slots: TimeSlot[]) => {
@@ -175,22 +241,41 @@ export function AdminSlots() {
         return
       }
 
+      // Validate location for in-person meetings
+      if (newSlot.meeting_mode === 'in-person' && !newSlot.location_id) {
+        toast({
+          title: "Location Required",
+          description: "Please select a location for in-person meetings.",
+          variant: "destructive"
+        })
+        return
+      }
+
       // Using singleton supabase client
 
       // Check if slot already exists with the new unique constraint
-      const { data: existingSlot } = await supabase
+      let query = supabase
         .from('time_slots')
         .select('id')
         .eq('date', newSlot.date)
         .eq('time', newSlot.time)
         .eq('slot_type', newSlot.slot_type)
         .eq('session_type', newSlot.session_type)
-        .maybeSingle()
+        .eq('meeting_mode', newSlot.meeting_mode)
+        .eq('duration', newSlot.duration)
+
+      if (newSlot.location_id) {
+        query = query.eq('location_id', newSlot.location_id)
+      } else {
+        query = query.is('location_id', null)
+      }
+
+      const { data: existingSlot } = await query.maybeSingle()
 
       if (existingSlot) {
         toast({
           title: "Slot Already Exists",
-          description: `A ${newSlot.slot_type} ${newSlot.session_type} slot already exists for ${newSlot.date} at ${newSlot.time}!`,
+          description: `A ${newSlot.slot_type} ${newSlot.session_type} ${newSlot.meeting_mode} slot (${newSlot.duration}min) already exists for ${newSlot.date} at ${newSlot.time}!`,
           variant: "destructive"
         })
         return
@@ -205,6 +290,9 @@ export function AdminSlots() {
           is_available: true,
           slot_type: newSlot.slot_type,
           session_type: newSlot.session_type,
+          meeting_mode: newSlot.meeting_mode,
+          duration: newSlot.duration,
+          location_id: newSlot.location_id,
         } as any)
         .select()
         .single()
@@ -234,6 +322,9 @@ export function AdminSlots() {
         time: "09:00",
         slot_type: "business",
         session_type: "free",
+        meeting_mode: "online",
+        duration: 30,
+        location_id: null,
       })
       setIsCreating(false)
       toast({
@@ -330,6 +421,7 @@ export function AdminSlots() {
 
   const generateBulkSlots = async () => {
     try {
+      setIsGeneratingPreview(true)
       const generatedSlots: TimeSlot[] = []
       const startDate = new Date(bulkSettings.dateRange.start)
       const endDate = new Date(bulkSettings.dateRange.end)
@@ -347,6 +439,16 @@ export function AdminSlots() {
         toast({
           title: "No Days Selected",
           description: "Please select at least one day",
+          variant: "destructive"
+        })
+        return
+      }
+
+      // Validate location for in-person meetings
+      if (bulkSettings.meetingMode === 'in-person' && !bulkSettings.locationId) {
+        toast({
+          title: "Location Required",
+          description: "Please select a location for in-person meetings.",
           variant: "destructive"
         })
         return
@@ -384,6 +486,9 @@ export function AdminSlots() {
                 is_available: true,
                 slot_type: bulkSettings.slotType,
                 session_type: bulkSettings.sessionType,
+                meeting_mode: bulkSettings.meetingMode,
+                duration: bulkSettings.duration,
+                location_id: bulkSettings.locationId,
                 created_at: new Date().toISOString(),
               })
             }
@@ -419,10 +524,16 @@ export function AdminSlots() {
           .gte('date', startDate.toISOString().split('T')[0])
           .lte('date', endDate.toISOString().split('T')[0]) as any
 
+        // Check for both exact slot matches and any time conflicts
         const slotConflicts = new Set()
+        const timeConflicts = new Set()
+
         if (existingSlots) {
           for (const existingSlot of existingSlots) {
+            // Exact match (same date, time, slot_type, session_type)
             slotConflicts.add(`${(existingSlot as any).date}-${(existingSlot as any).time}-${(existingSlot as any).slot_type}-${(existingSlot as any).session_type}`)
+            // Time conflict (same date and time, regardless of type)
+            timeConflicts.add(`${(existingSlot as any).date}-${(existingSlot as any).time}`)
           }
         }
 
@@ -435,6 +546,8 @@ export function AdminSlots() {
             slot.id = `conflict-appointment-${slot.id}`
           } else if (slotConflicts.has(exactSlotKey)) {
             slot.id = `conflict-slot-${slot.id}`
+          } else if (timeConflicts.has(timeKey)) {
+            slot.id = `conflict-time-${slot.id}`
           }
         })
       }
@@ -445,6 +558,7 @@ export function AdminSlots() {
       setPreviewSlots(futureSlots)
       setShowPreview(true)
       setConflictResolution('skip') // Reset to default option
+      setIsGeneratingPreview(false)
 
       if (futureSlots.length < generatedSlots.length) {
         const pastCount = generatedSlots.length - futureSlots.length
@@ -456,6 +570,7 @@ export function AdminSlots() {
       }
     } catch (error) {
       console.error("Error generating bulk slots:", error)
+      setIsGeneratingPreview(false)
       toast({
         title: "Error Generating Slots",
         description: "Please check your settings and try again.",
@@ -466,6 +581,11 @@ export function AdminSlots() {
 
   const confirmBulkCreation = async () => {
     try {
+      setBulkCreationStatus({
+        isProcessing: true,
+        step: 'checking',
+        message: `Checking conflicts for ${previewSlots.length} slots...`
+      })
 
       // Check for existing appointments that would conflict using date range
       const startDate = previewSlots.reduce((min, slot) =>
@@ -489,21 +609,36 @@ export function AdminSlots() {
         .gte('date', startDate)
         .lte('date', endDate) as any
 
-      // Filter to only slots that exactly match our preview slots
+      // Filter to slots that have exact matches AND get all time-conflicting slots
       const existingSlots: any[] = []
+      const timeConflictingSlots: any[] = []
+
       if (allExistingSlots) {
         for (const previewSlot of previewSlots) {
-          const matchingSlot = allExistingSlots.find((existing: any) =>
+          // Find exact matches (same date, time, slot_type, session_type)
+          const exactMatch = allExistingSlots.find((existing: any) =>
             existing.date === previewSlot.date &&
             existing.time === previewSlot.time &&
             existing.slot_type === previewSlot.slot_type &&
             existing.session_type === previewSlot.session_type
           )
-          if (matchingSlot) {
-            existingSlots.push(matchingSlot)
+          if (exactMatch) {
+            existingSlots.push(exactMatch)
           }
+
+          // Find time conflicts (same date and time, any slot type)
+          const timeConflicts = allExistingSlots.filter((existing: any) =>
+            existing.date === previewSlot.date &&
+            existing.time === previewSlot.time
+          )
+          timeConflictingSlots.push(...timeConflicts)
         }
       }
+
+      // Remove duplicates from timeConflictingSlots
+      const uniqueTimeConflictingSlots = timeConflictingSlots.filter((slot, index, arr) =>
+        arr.findIndex(s => s.id === slot.id) === index
+      )
 
       // Filter out slots that have confirmed/pending appointments
       const appointmentConflicts = new Set(
@@ -515,20 +650,31 @@ export function AdminSlots() {
         existingSlots?.map((slot: any) => `${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`) || []
       )
 
+      // Filter out slots that have time conflicts (same date and time, regardless of type)
+      const timeConflicts = new Set(
+        uniqueTimeConflictingSlots?.map((slot: any) => `${slot.date}-${slot.time}`) || []
+      )
+
       // If delete-and-create is selected, delete conflicting slots first
-      if (conflictResolution === 'delete-and-create' && existingSlots && existingSlots.length > 0) {
-        const conflictingSlotIds = existingSlots
+      if (conflictResolution === 'delete-and-create' && uniqueTimeConflictingSlots && uniqueTimeConflictingSlots.length > 0) {
+        const conflictingSlotIds = uniqueTimeConflictingSlots
           .filter(existingSlot => {
             const timeKey = `${existingSlot.date}-${existingSlot.time}`
-            const exactSlotKey = `${existingSlot.date}-${existingSlot.time}-${existingSlot.slot_type}-${existingSlot.session_type}`
+            // Delete slots that have time conflicts but no appointments
             return previewSlots.some(previewSlot => {
-              const previewExactKey = `${previewSlot.date}-${previewSlot.time}-${previewSlot.slot_type}-${previewSlot.session_type}`
-              return previewExactKey === exactSlotKey && !appointmentConflicts.has(timeKey)
+              const previewTimeKey = `${previewSlot.date}-${previewSlot.time}`
+              return previewTimeKey === timeKey && !appointmentConflicts.has(timeKey)
             })
           })
           .map(slot => slot.id)
 
         if (conflictingSlotIds.length > 0) {
+          setBulkCreationStatus({
+            isProcessing: true,
+            step: 'deleting',
+            message: `Deleting ${conflictingSlotIds.length} conflicting slots...`
+          })
+
           const { error: deleteError } = await supabase
             .from('time_slots')
             .delete()
@@ -536,6 +682,12 @@ export function AdminSlots() {
 
           if (deleteError) {
             console.error('Error deleting conflicting slots:', deleteError)
+            // Reset loading status before showing error
+            setBulkCreationStatus({
+              isProcessing: false,
+              step: 'complete',
+              message: ''
+            })
             toast({
               title: "Error Deleting Conflicting Slots",
               description: deleteError.message,
@@ -570,14 +722,19 @@ export function AdminSlots() {
             is_available: true,
             slot_type: slot.slot_type,
             session_type: slot.session_type,
+            meeting_mode: slot.meeting_mode,
+            duration: slot.duration,
+            location_id: slot.location_id,
           }))
       } else {
-        // Skip both appointment and slot conflicts
+        // Skip appointment conflicts, exact slot conflicts, and time conflicts
         slotsToInsert = previewSlots
           .filter(slot => {
             const timeKey = `${slot.date}-${slot.time}`
             const exactSlotKey = `${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`
-            return !appointmentConflicts.has(timeKey) && !slotConflicts.has(exactSlotKey)
+            return !appointmentConflicts.has(timeKey) &&
+                   !slotConflicts.has(exactSlotKey) &&
+                   !timeConflicts.has(timeKey)
           })
           .map(slot => ({
             date: slot.date,
@@ -585,6 +742,9 @@ export function AdminSlots() {
             is_available: true,
             slot_type: slot.slot_type,
             session_type: slot.session_type,
+            meeting_mode: slot.meeting_mode,
+            duration: slot.duration,
+            location_id: slot.location_id,
           }))
       }
 
@@ -595,6 +755,9 @@ export function AdminSlots() {
         const duplicateCount = previewSlots.filter(slot =>
           slotConflicts.has(`${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`)
         ).length
+        const timeConflictCount = previewSlots.filter(slot =>
+          timeConflicts.has(`${slot.date}-${slot.time}`)
+        ).length
 
         let message = 'No new slots to create!'
         if (appointmentCount > 0) {
@@ -603,6 +766,16 @@ export function AdminSlots() {
         if (duplicateCount > 0 && conflictResolution === 'skip') {
           message += ` ${duplicateCount} slots already exist.`
         }
+        if (timeConflictCount > 0 && conflictResolution === 'skip') {
+          message += ` ${timeConflictCount} slots skipped due to time conflicts.`
+        }
+        // Reset loading status before showing error
+        setBulkCreationStatus({
+          isProcessing: false,
+          step: 'complete',
+          message: ''
+        })
+
         toast({
           title: "No Slots to Create",
           description: message,
@@ -612,10 +785,27 @@ export function AdminSlots() {
       }
 
       // Insert new slots one by one to handle any remaining conflicts gracefully
+      setBulkCreationStatus({
+        isProcessing: true,
+        step: 'creating',
+        message: `Creating ${slotsToInsert.length} new slots...`
+      })
+
       const insertedSlots: any[] = []
       const insertErrors: string[] = []
 
-      for (const slotData of slotsToInsert) {
+      for (let i = 0; i < slotsToInsert.length; i++) {
+        const slotData = slotsToInsert[i]
+
+        // Update progress for larger batches
+        if (slotsToInsert.length > 10 && i % 5 === 0) {
+          setBulkCreationStatus({
+            isProcessing: true,
+            step: 'creating',
+            message: `Creating slots... ${i + 1}/${slotsToInsert.length} processed`
+          })
+        }
+
         try {
           const { data: insertedSlot, error: insertError } = await supabase
             .from('time_slots')
@@ -648,6 +838,12 @@ export function AdminSlots() {
 
       if (error) {
         console.error('Error creating bulk slots:', error)
+        // Reset loading status before showing error
+        setBulkCreationStatus({
+          isProcessing: false,
+          step: 'complete',
+          message: ''
+        })
         toast({
           title: "Error Creating Bulk Slots",
           description: error.message,
@@ -662,6 +858,9 @@ export function AdminSlots() {
       const duplicateConflictCount = previewSlots.filter(slot =>
         slotConflicts.has(`${slot.date}-${slot.time}-${slot.slot_type}-${slot.session_type}`)
       ).length
+      const timeConflictCount = previewSlots.filter(slot =>
+        timeConflicts.has(`${slot.date}-${slot.time}`)
+      ).length
 
       let message = `Successfully created ${data?.length || 0} slots!`
 
@@ -671,14 +870,33 @@ export function AdminSlots() {
       if (duplicateConflictCount > 0 && conflictResolution === 'skip') {
         message += ` (Skipped ${duplicateConflictCount} duplicate slots)`
       }
+      if (timeConflictCount > 0 && conflictResolution === 'skip') {
+        message += ` (Skipped ${timeConflictCount} time conflicts)`
+      }
       if (insertErrors.length > 0) {
         message += ` (${insertErrors.length} slots had insertion issues - check console for details)`
       }
+
+      setBulkCreationStatus({
+        isProcessing: true,
+        step: 'complete',
+        message: `Successfully created ${data?.length || 0} slots!`
+      })
 
       setSlots([...slots, ...(data || [])])
       setPreviewSlots([])
       setShowPreview(false)
       setIsBulkCreating(false)
+
+      // Brief delay to show completion, then hide status
+      setTimeout(() => {
+        setBulkCreationStatus({
+          isProcessing: false,
+          step: 'complete',
+          message: ''
+        })
+      }, 1500)
+
       toast({
         title: "Bulk Creation Successful",
         description: message,
@@ -689,6 +907,11 @@ export function AdminSlots() {
       fetchSlots()
     } catch (error) {
       console.error('Error:', error)
+      setBulkCreationStatus({
+        isProcessing: false,
+        step: 'complete',
+        message: ''
+      })
       toast({
         title: "Error",
         description: "Failed to create bulk slots",
@@ -810,14 +1033,30 @@ export function AdminSlots() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Badge variant={slot.is_available ? "default" : "secondary"}>
-              {slot.is_available ? "Available" : "Unavailable"}
-            </Badge>
-            <Badge variant="outline">{slot.slot_type}</Badge>
-            <Badge variant={slot.session_type === "paid" ? "default" : "secondary"}>
-              {slot.session_type === "paid" ? "Paid" : "Free"}
-            </Badge>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Badge variant={slot.is_available ? "default" : "secondary"}>
+                {slot.is_available ? "Available" : "Unavailable"}
+              </Badge>
+              <Badge variant="outline">{slot.slot_type}</Badge>
+              <Badge variant={slot.session_type === "paid" ? "default" : "secondary"}>
+                {slot.session_type === "paid" ? "Paid" : "Free"}
+              </Badge>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-xs">
+                {slot.meeting_mode === "online" ? "🌐 Online" : "🏢 In-Person"}
+              </Badge>
+              <Badge variant="outline" className="text-xs">
+                ⏱️ {slot.duration}min
+              </Badge>
+              {slot.meeting_mode === "in-person" && slot.location_id && (
+                <Badge variant="outline" className="text-xs bg-blue-50">
+                  <MapPin className="w-3 h-3 mr-1" />
+                  {slot.locations?.name || locations.find(loc => loc.id === slot.location_id)?.name || 'Location'}
+                </Badge>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -1082,6 +1321,93 @@ export function AdminSlots() {
               </div>
             </div>
 
+            {/* Meeting Mode and Duration */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Meeting Mode</Label>
+                <Select
+                  value={bulkSettings.meetingMode}
+                  onValueChange={(value) =>
+                    setBulkSettings((prev) => ({
+                      ...prev,
+                      meetingMode: value as any,
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="online">Online</SelectItem>
+                    <SelectItem value="in-person">In-Person</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Duration (Minutes)</Label>
+                <Select
+                  value={bulkSettings.duration.toString()}
+                  onValueChange={(value) =>
+                    setBulkSettings((prev) => ({
+                      ...prev,
+                      duration: parseInt(value) as any,
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="15">15 minutes</SelectItem>
+                    <SelectItem value="30">30 minutes</SelectItem>
+                    <SelectItem value="45">45 minutes</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Location Selection for In-Person Meetings */}
+            {bulkSettings.meetingMode === 'in-person' && (
+              <div>
+                <Label>Location *</Label>
+                {loadingLocations ? (
+                  <div className="flex items-center gap-2 p-2 border rounded">
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span className="text-sm">Loading locations...</span>
+                  </div>
+                ) : locations.length === 0 ? (
+                  <div className="flex items-center gap-2 p-2 border rounded bg-yellow-50">
+                    <AlertTriangle className="w-4 h-4 text-yellow-600" />
+                    <span className="text-sm text-yellow-700">No locations available. Please add locations first.</span>
+                  </div>
+                ) : (
+                  <Select
+                    value={bulkSettings.locationId || ''}
+                    onValueChange={(value) =>
+                      setBulkSettings((prev) => ({
+                        ...prev,
+                        locationId: value || null,
+                      }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select location for all slots" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {locations.map((location) => (
+                        <SelectItem key={location.id} value={location.id}>
+                          <div className="flex items-center gap-2">
+                            <MapPin className="w-3 h-3" />
+                            <span className="font-medium">{location.name}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            )}
+
             {/* Time Window */}
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -1117,9 +1443,22 @@ export function AdminSlots() {
             </p>
 
             <div className="flex gap-3">
-              <Button onClick={generateBulkSlots} className="btn-primary">
-                <Eye className="w-4 h-4 mr-2" />
-                Preview Slots
+              <Button
+                onClick={generateBulkSlots}
+                className="btn-primary"
+                disabled={isGeneratingPreview}
+              >
+                {isGeneratingPreview ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    Generating Preview...
+                  </>
+                ) : (
+                  <>
+                    <Eye className="w-4 h-4 mr-2" />
+                    Preview Slots
+                  </>
+                )}
               </Button>
               <Button onClick={() => setIsBulkCreating(false)} variant="outline">
                 Cancel
@@ -1154,7 +1493,8 @@ export function AdminSlots() {
               {previewSlots.slice(0, 10).map((slot) => {
                 const isAppointmentConflict = slot.id.startsWith('conflict-appointment-')
                 const isSlotConflict = slot.id.startsWith('conflict-slot-')
-                const hasConflict = isAppointmentConflict || isSlotConflict
+                const isTimeConflict = slot.id.startsWith('conflict-time-')
+                const hasConflict = isAppointmentConflict || isSlotConflict || isTimeConflict
 
                 return (
                   <div key={slot.id} className={`flex items-center justify-between p-2 border rounded ${
@@ -1166,7 +1506,9 @@ export function AdminSlots() {
                       </span>
                       {hasConflict && (
                         <Badge variant="destructive" className="text-xs">
-                          {isAppointmentConflict ? 'Has Appointment' : 'Slot Exists'}
+                          {isAppointmentConflict ? 'Has Appointment' :
+                           isSlotConflict ? 'Slot Exists' :
+                           'Time Conflict'}
                         </Badge>
                       )}
                     </div>
@@ -1201,11 +1543,15 @@ export function AdminSlots() {
                     {previewSlots.filter(slot => slot.id.startsWith('conflict-slot-')).length > 0 && (
                       <div>• {previewSlots.filter(slot => slot.id.startsWith('conflict-slot-')).length} slots already exist</div>
                     )}
+                    {previewSlots.filter(slot => slot.id.startsWith('conflict-time-')).length > 0 && (
+                      <div>• {previewSlots.filter(slot => slot.id.startsWith('conflict-time-')).length} slots have time conflicts with different slot types</div>
+                    )}
                   </div>
                 </div>
 
                 {/* Conflict Resolution Options */}
-                {previewSlots.filter(slot => slot.id.startsWith('conflict-slot-')).length > 0 && (
+                {(previewSlots.filter(slot => slot.id.startsWith('conflict-slot-')).length > 0 ||
+                  previewSlots.filter(slot => slot.id.startsWith('conflict-time-')).length > 0) && (
                   <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
                     <Label className="text-sm font-medium text-blue-800 mb-3 block">
                       How would you like to handle existing slot conflicts?
@@ -1224,7 +1570,7 @@ export function AdminSlots() {
                       <div className="flex items-center space-x-2">
                         <RadioGroupItem value="delete-and-create" id="delete-and-create" />
                         <Label htmlFor="delete-and-create" className="text-sm text-blue-700">
-                          Delete existing slots and create new ones (⚠️ will permanently delete {previewSlots.filter(slot => slot.id.startsWith('conflict-slot-')).length} existing slots)
+                          Delete existing slots and create new ones (⚠️ will permanently delete {previewSlots.filter(slot => slot.id.startsWith('conflict-slot-') || slot.id.startsWith('conflict-time-')).length} existing slots)
                         </Label>
                       </div>
                     </RadioGroup>
@@ -1236,15 +1582,53 @@ export function AdminSlots() {
               </div>
             )}
 
+            {/* Progress Status */}
+            {bulkCreationStatus.isProcessing && (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <RefreshCw className="w-5 h-5 animate-spin text-blue-600" />
+                  <div>
+                    <div className="text-sm font-medium text-blue-800">
+                      {bulkCreationStatus.step === 'checking' && 'Checking Conflicts...'}
+                      {bulkCreationStatus.step === 'deleting' && 'Deleting Conflicting Slots...'}
+                      {bulkCreationStatus.step === 'creating' && 'Creating New Slots...'}
+                      {bulkCreationStatus.step === 'complete' && '✅ Process Complete!'}
+                    </div>
+                    <div className="text-xs text-blue-600">{bulkCreationStatus.message}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-3">
-              <Button onClick={confirmBulkCreation} className="btn-primary">
-                <Plus className="w-4 h-4 mr-2" />
-                {conflictResolution === 'delete-and-create' && previewSlots.some(slot => slot.id.startsWith('conflict-slot-'))
-                  ? 'Delete Conflicts & Create All Slots'
-                  : 'Create All Slots'
-                }
+              <Button
+                onClick={confirmBulkCreation}
+                className="btn-primary"
+                disabled={bulkCreationStatus.isProcessing}
+              >
+                {bulkCreationStatus.isProcessing ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    {bulkCreationStatus.step === 'checking' && 'Checking...'}
+                    {bulkCreationStatus.step === 'deleting' && 'Deleting...'}
+                    {bulkCreationStatus.step === 'creating' && 'Creating...'}
+                    {bulkCreationStatus.step === 'complete' && 'Complete!'}
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-4 h-4 mr-2" />
+                    {conflictResolution === 'delete-and-create' && previewSlots.some(slot => slot.id.startsWith('conflict-slot-') || slot.id.startsWith('conflict-time-'))
+                      ? 'Delete Conflicts & Create All Slots'
+                      : 'Create All Slots'
+                    }
+                  </>
+                )}
               </Button>
-              <Button onClick={() => setShowPreview(false)} variant="outline">
+              <Button
+                onClick={() => setShowPreview(false)}
+                variant="outline"
+                disabled={bulkCreationStatus.isProcessing}
+              >
                 Back to Edit
               </Button>
               <Button
@@ -1253,6 +1637,7 @@ export function AdminSlots() {
                   setIsBulkCreating(false)
                 }}
                 variant="outline"
+                disabled={bulkCreationStatus.isProcessing}
               >
                 Cancel
               </Button>
@@ -1282,7 +1667,7 @@ export function AdminSlots() {
             <CardTitle>Create New Slot</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div>
                 <Label>Date</Label>
                 <Input
@@ -1332,6 +1717,72 @@ export function AdminSlots() {
                   </SelectContent>
                 </Select>
               </div>
+              <div>
+                <Label>Meeting Mode</Label>
+                <Select
+                  value={newSlot.meeting_mode}
+                  onValueChange={(value) => setNewSlot({ ...newSlot, meeting_mode: value as any })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="online">Online</SelectItem>
+                    <SelectItem value="in-person">In-Person</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Duration (Minutes)</Label>
+                <Select
+                  value={newSlot.duration.toString()}
+                  onValueChange={(value) => setNewSlot({ ...newSlot, duration: parseInt(value) as any })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="15">15 minutes</SelectItem>
+                    <SelectItem value="30">30 minutes</SelectItem>
+                    <SelectItem value="45">45 minutes</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {newSlot.meeting_mode === 'in-person' && (
+                <div>
+                  <Label>Location *</Label>
+                  {loadingLocations ? (
+                    <div className="flex items-center gap-2 p-2 border rounded">
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span className="text-sm">Loading locations...</span>
+                    </div>
+                  ) : locations.length === 0 ? (
+                    <div className="flex items-center gap-2 p-2 border rounded bg-yellow-50">
+                      <AlertTriangle className="w-4 h-4 text-yellow-600" />
+                      <span className="text-sm text-yellow-700">No locations available. Please add locations first.</span>
+                    </div>
+                  ) : (
+                    <Select
+                      value={newSlot.location_id || ''}
+                      onValueChange={(value) => setNewSlot({ ...newSlot, location_id: value || null })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select location" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {locations.map((location) => (
+                          <SelectItem key={location.id} value={location.id}>
+                            <div className="flex items-center gap-2">
+                              <MapPin className="w-3 h-3" />
+                              <span className="font-medium">{location.name}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="flex gap-3">

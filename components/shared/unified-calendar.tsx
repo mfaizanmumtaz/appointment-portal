@@ -241,13 +241,24 @@ export function UnifiedCalendar({
                           <Badge variant={slot.session_type === 'paid' ? 'default' : 'secondary'} className="text-xs">
                             {slot.session_type === 'paid' ? 'Paid' : 'FREE'}
                           </Badge>
+                          <Badge variant="outline" className="text-xs">
+                            {slot.meeting_mode === "online" ? "🌐 Online" : "🏢 In-Person"}
+                          </Badge>
+                          <Badge variant="outline" className="text-xs">
+                            ⏱️ {slot.duration}min
+                          </Badge>
                         </>
                       )}
                       {sessionType?.includes("online") && (
                         <>
-                          <Badge variant="outline" className="text-xs">Zoom</Badge>
+                          <Badge variant="outline" className="text-xs">
+                            {slot.meeting_mode === "online" ? "Zoom" : "In-Person"}
+                          </Badge>
                           <Badge variant={slot.session_type === 'paid' ? 'default' : 'secondary'} className="text-xs">
                             {slot.session_type === 'paid' ? 'Paid' : 'FREE'}
+                          </Badge>
+                          <Badge variant="outline" className="text-xs">
+                            ⏱️ {slot.duration}min
                           </Badge>
                         </>
                       )}

@@ -25,8 +25,9 @@ import {
 import Link from "next/link"
 import { MeetingDetails } from "@/components/ui/meeting-details"
 import { generateZoomLink, generateVenueAddress, sendBusinessBookingNotifications } from "@/lib/meeting-utils"
+import type { Database } from "@/lib/types/database"
 
-type Step = "contact" | "meeting-type" | "calendar" | "payment" | "confirmation"
+type Step = "meeting-overview" | "calendar" | "contact" | "payment" | "confirmation"
 type MeetingMode = "online" | "in-person"
 type Duration = 15 | 30 | 60
 type SlotType = "paid" | "free"
@@ -49,11 +50,13 @@ interface TimeSlot {
   type: SlotType
   state: SlotState
   price?: number
+  duration: number
+  meeting_mode: MeetingMode
 }
 
 
 export default function BusinessPage() {
-  const [step, setStep] = useState<Step>("contact")
+  const [step, setStep] = useState<Step>("meeting-overview")
   const [selectedDate, setSelectedDate] = useState(new Date())
   const [availableSlots, setAvailableSlots] = useState<TimeSlot[]>([])
   const [loading, setLoading] = useState(false)
@@ -74,6 +77,8 @@ export default function BusinessPage() {
     selectedSlot: null,
   })
 
+  const [contactErrors, setContactErrors] = useState<Record<string, string>>({})
+
   // Store generated meeting details to show to user
   const [generatedMeetingDetails, setGeneratedMeetingDetails] = useState<{
     meetingUrl?: string
@@ -92,7 +97,7 @@ export default function BusinessPage() {
   }, [])
 
   useEffect(() => {
-    if (step === "calendar") {
+    if (step === "meeting-overview") {
       fetchAvailableSlots()
     }
   }, [step, selectedDate])
@@ -166,12 +171,14 @@ export default function BusinessPage() {
 
       const { data: slots, error } = await supabase
         .from('time_slots')
-        .select('*')
+        .select('id, date, time, session_type, meeting_mode, duration, location_id')
         .eq('is_available', true)
         .in('slot_type', ['business', 'both'])
         .gte('date', today) // Only future slots from today
         .order('date', { ascending: true })
         .order('time', { ascending: true })
+
+      console.log('Fetched slots:', slots) // Debug log
 
       if (error) {
         console.error('Error fetching slots:', error)
@@ -179,13 +186,15 @@ export default function BusinessPage() {
         return
       }
 
-      const formattedSlots: TimeSlot[] = (slots || []).map(slot => ({
+      const formattedSlots: TimeSlot[] = (slots || []).map((slot: any) => ({
         id: slot.id,
         date: slot.date,
         time: slot.time,
         type: slot.session_type === 'paid' ? 'paid' : 'free',
         state: 'available' as const,
-        price: slot.session_type === 'paid' ? 150 : undefined
+        price: slot.session_type === 'paid' ? 150 : undefined,
+        duration: slot.duration || 30, // Default to 30 if not specified
+        meeting_mode: slot.meeting_mode || 'online' // Default to online if not specified
       }))
 
       setAvailableSlots(formattedSlots)
@@ -197,9 +206,54 @@ export default function BusinessPage() {
     }
   }
 
-  const handleContactSubmit = (e: React.FormEvent) => {
+  const validateContactForm = () => {
+    const errors: Record<string, string> = {}
+
+    // First Name validation
+    if (!bookingData.firstName.trim()) {
+      errors.firstName = "First name is required"
+    } else if (bookingData.firstName.trim().length < 2) {
+      errors.firstName = "First name must be at least 2 characters"
+    }
+
+    // Email validation
+    if (!bookingData.email.trim()) {
+      errors.email = "Email address is required"
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bookingData.email)) {
+      errors.email = "Please enter a valid email address"
+    }
+
+    // Phone validation
+    if (!bookingData.phone.trim()) {
+      errors.phone = "Phone number is required"
+    } else if (!/^[+]?[1-9][\d\s\-()]{7,15}$/.test(bookingData.phone.replace(/[\s\-()]/g, ""))) {
+      errors.phone = "Please enter a valid phone number with country code"
+    }
+
+    // Purpose validation
+    if (!bookingData.purpose.trim()) {
+      errors.purpose = "Purpose or description is required"
+    } else if (bookingData.purpose.trim().length < 10) {
+      errors.purpose = "Please provide at least 10 characters describing your purpose"
+    }
+
+    setContactErrors(errors)
+    return Object.keys(errors).length === 0
+  }
+
+  const handleContactSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setStep("meeting-type")
+    
+    if (!validateContactForm()) {
+      return // Stop if validation fails
+    }
+
+    if (bookingData.selectedSlot?.type === "paid") {
+      setStep("payment")
+    } else if (bookingData.selectedSlot) {
+      await saveAppointment(bookingData.selectedSlot)
+      setStep("confirmation")
+    }
   }
 
   const handleMeetingTypeSubmit = () => {
@@ -210,12 +264,7 @@ export default function BusinessPage() {
 
   const handleSlotSelect = async (slot: TimeSlot) => {
     setBookingData({ ...bookingData, selectedSlot: slot })
-    if (slot.type === "paid") {
-      setStep("payment")
-    } else {
-      await saveAppointment(slot)
-      setStep("confirmation")
-    }
+    setStep("contact")
   }
 
   const saveAppointment = async (slot: TimeSlot) => {
@@ -258,7 +307,7 @@ export default function BusinessPage() {
 
     const { error: appointmentError } = await supabase
       .from('appointments')
-      .insert(appointmentData)
+      .insert(appointmentData as any)
 
     if (appointmentError) {
       console.error('Error saving appointment:', appointmentError)
@@ -268,35 +317,70 @@ export default function BusinessPage() {
     // Note: Slot will be automatically marked as unavailable by database trigger
     // No need to manually update is_available field anymore
 
-    // Send booking confirmation and admin notification emails
-    try {
-      await sendBusinessBookingNotifications({
-        clientName: bookingData.firstName,
-        clientEmail: bookingData.email,
-        clientPhone: bookingData.phone,
+    // Send emails only for paid sessions, free sessions go to approval queue
+    if (slot.type === 'paid') {
+      try {
+        await sendBusinessBookingNotifications({
+          clientName: bookingData.firstName,
+          clientEmail: bookingData.email,
+          clientPhone: bookingData.phone,
+          date: slot.date,
+          time: slot.time,
+          sessionType: 'paid',
+          meetingType: bookingData.meetingMode!,
+          meetingUrl: meetingUrl || undefined,
+          venueAddress: venueAddress || undefined,
+          purpose: bookingData.purpose,
+          isConfirmed: true // Paid sessions are auto-confirmed
+        })
+
+        console.log('📧 Paid session emails sent successfully (client + admin)')
+      } catch (emailError) {
+        console.error('Failed to send booking emails:', emailError)
+        // Don't fail the booking if email fails
+      }
+    } else {
+      // Free session - no immediate email, just log for CEO approval queue
+      console.log('🔄 Free session request queued for CEO approval:', {
+        client: bookingData.firstName,
+        email: bookingData.email,
         date: slot.date,
         time: slot.time,
-        sessionType: slot.type === 'paid' ? 'paid' : 'free',
-        meetingType: bookingData.meetingMode!,
-        meetingUrl: meetingUrl || undefined,
-        venueAddress: venueAddress || undefined,
-        purpose: bookingData.purpose,
-        isConfirmed: true // Business bookings are auto-confirmed
+        purpose: bookingData.purpose
       })
 
-      console.log('📧 Booking emails sent successfully (client + admin)')
-    } catch (emailError) {
-      console.error('Failed to send booking emails:', emailError)
-      // Don't fail the booking if email fails
+      // TODO: Add notification to CEO about pending free session request
+      // This will be handled by the requests queue system
     }
   }
 
   const getAvailableSlots = () => {
-    return availableSlots.filter(
-      (slot) =>
-        slot.state === "available" &&
-        (bookingData.duration === 15 || bookingData.duration === 30 || bookingData.duration === 60),
-    )
+    if (!bookingData.meetingMode || !bookingData.duration) {
+      return []
+    }
+    
+    const filtered = availableSlots.filter((slot) => {
+      // Filter by availability
+      if (slot.state !== "available") return false
+      
+      // Filter by duration - slot should match selected duration
+      if (slot.duration !== bookingData.duration) return false
+      
+      // Filter by meeting mode - slot should support selected meeting mode
+      if (slot.meeting_mode !== bookingData.meetingMode) return false
+      
+      return true
+    })
+    
+    console.log('Filtering slots:', {
+      totalSlots: availableSlots.length,
+      selectedMode: bookingData.meetingMode,
+      selectedDuration: bookingData.duration,
+      filteredSlots: filtered.length,
+      sampleSlot: availableSlots[0]
+    }) // Debug log
+    
+    return filtered
   }
 
   // Remove month navigation - show infinite future slots
@@ -340,11 +424,10 @@ export default function BusinessPage() {
           <div className="flex justify-center mb-6 sm:mb-8 overflow-x-auto">
             <div className="flex items-center space-x-2 sm:space-x-4 min-w-max px-4">
               {[
-                { key: "contact", label: "Contact", icon: "1" },
-                { key: "meeting-type", label: "Meeting", icon: "2" },
-                { key: "calendar", label: "Schedule", icon: "3" },
-                { key: "payment", label: "Payment", icon: "4" },
-                { key: "confirmation", label: "Done", icon: "5" },
+                { key: "meeting-overview", label: "Meeting", icon: "1" },
+                { key: "contact", label: "Contact", icon: "2" },
+                { key: "payment", label: "Payment", icon: "3" },
+                { key: "confirmation", label: "Done", icon: "4" },
               ].map((item, index) => (
                 <div key={item.key} className="flex items-center">
                   <div className="flex flex-col items-center">
@@ -352,108 +435,32 @@ export default function BusinessPage() {
                       className={`w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-xs sm:text-sm font-medium ${
                         step === item.key
                           ? "bg-blue-600 text-white"
-                          : index < ["contact", "meeting-type", "calendar", "payment", "confirmation"].indexOf(step)
+                          : index < ["meeting-overview", "contact", "payment", "confirmation"].indexOf(step)
                             ? "bg-green-500 text-white"
                             : "bg-slate-200 text-slate-600"
                       }`}
                     >
-                      {index < ["contact", "meeting-type", "calendar", "payment", "confirmation"].indexOf(step)
+                      {index < ["meeting-overview", "contact", "payment", "confirmation"].indexOf(step)
                         ? "✓"
                         : item.icon}
                     </div>
                     <span className="text-xs text-slate-600 mt-1 hidden sm:block">{item.label}</span>
                   </div>
-                  {index < 4 && <div className="w-4 sm:w-8 h-0.5 bg-slate-200 mx-1 sm:mx-2" />}
+                  {index < 3 && <div className="w-4 sm:w-8 h-0.5 bg-slate-200 mx-1 sm:mx-2" />}
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Step 1: Contact and Purpose */}
-          {step === "contact" && (
+          {/* Step 1: Meeting Overview - Type, Duration, and Available Slots Preview */}
+          {step === "meeting-overview" && (
+            <div className="space-y-6">
+              {/* Meeting Type and Duration Selection */}
             <Card className="bg-white/80 backdrop-blur-sm border-slate-200">
               <CardHeader className="pb-4 sm:pb-6">
                 <CardTitle className="flex items-center gap-2 text-slate-900 text-lg sm:text-xl">
                   <div className="w-6 h-6 sm:w-8 sm:h-8 bg-blue-100 rounded-full flex items-center justify-center">
                     <span className="text-blue-600 font-semibold text-xs sm:text-sm">1</span>
-                  </div>
-                  Contact and Purpose
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <form onSubmit={handleContactSubmit} className="space-y-4 sm:space-y-6">
-                  <div>
-                    <Label htmlFor="firstName" className="text-slate-700 font-medium text-sm sm:text-base">
-                      First Name
-                    </Label>
-                    <Input
-                      id="firstName"
-                      value={bookingData.firstName}
-                      onChange={(e) => setBookingData({ ...bookingData, firstName: e.target.value })}
-                      className="mt-1 h-10 sm:h-11 border-slate-300"
-                      placeholder="Enter your first name"
-                    />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="email" className="text-slate-700 font-medium text-sm sm:text-base">
-                      Email Address
-                    </Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      value={bookingData.email}
-                      onChange={(e) => setBookingData({ ...bookingData, email: e.target.value })}
-                      className="mt-1 h-10 sm:h-11 border-slate-300"
-                      placeholder="your.email@company.com"
-                    />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="phone" className="text-slate-700 font-medium text-sm sm:text-base">
-                      Phone Number with Country Code
-                    </Label>
-                    <Input
-                      id="phone"
-                      value={bookingData.phone}
-                      onChange={(e) => setBookingData({ ...bookingData, phone: e.target.value })}
-                      className="mt-1 h-10 sm:h-11 border-slate-300"
-                      placeholder="+1 (555) 123-4567"
-                    />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="purpose" className="text-slate-700 font-medium text-sm sm:text-base">
-                      Purpose or Description
-                    </Label>
-                    <Textarea
-                      id="purpose"
-                      rows={4}
-                      value={bookingData.purpose}
-                      onChange={(e) => setBookingData({ ...bookingData, purpose: e.target.value })}
-                      className="mt-1 text-sm sm:text-base border-slate-300"
-                      placeholder="Tell me what you want to discuss in 3 to 5 sentences"
-                    />
-                  </div>
-
-                  <Button
-                    type="submit"
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 h-11 sm:h-12 text-sm sm:text-base"
-                  >
-                    Continue
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Step 2: Meeting Type and Duration */}
-          {step === "meeting-type" && (
-            <Card className="bg-white/80 backdrop-blur-sm border-slate-200">
-              <CardHeader className="pb-4 sm:pb-6">
-                <CardTitle className="flex items-center gap-2 text-slate-900 text-lg sm:text-xl">
-                  <div className="w-6 h-6 sm:w-8 sm:h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                    <span className="text-blue-600 font-semibold text-xs sm:text-sm">2</span>
                   </div>
                   Meeting Type and Duration
                 </CardTitle>
@@ -466,18 +473,28 @@ export default function BusinessPage() {
                     onValueChange={(value) => setBookingData({ ...bookingData, meetingMode: value as MeetingMode })}
                     className="space-y-3"
                   >
-                    <div className="flex items-center space-x-3 p-3 sm:p-4 border border-slate-200 rounded-lg hover:bg-slate-50">
+                    <div 
+                      className={`flex items-center space-x-3 p-3 sm:p-4 border-2 rounded-lg cursor-pointer transition-all duration-200 hover:border-blue-400 hover:bg-blue-50 hover:shadow-sm ${
+                        bookingData.meetingMode === "online" ? "border-blue-500 bg-blue-50" : "border-slate-200"
+                      }`}
+                      onClick={() => setBookingData({ ...bookingData, meetingMode: "online" })}
+                    >
                       <RadioGroupItem value="online" id="online" />
-                      <Label htmlFor="online" className="flex items-center gap-2 cursor-pointer text-sm sm:text-base">
+                      <Label htmlFor="online" className="flex items-center gap-2 cursor-pointer text-sm sm:text-base w-full pointer-events-none">
                         <Video className="w-4 h-4 text-blue-600" />
                         Online (Video Call)
                       </Label>
                     </div>
-                    <div className="flex items-center space-x-3 p-3 sm:p-4 border border-slate-200 rounded-lg hover:bg-slate-50">
+                    <div 
+                      className={`flex items-center space-x-3 p-3 sm:p-4 border-2 rounded-lg cursor-pointer transition-all duration-200 hover:border-green-400 hover:bg-green-50 hover:shadow-sm ${
+                        bookingData.meetingMode === "in-person" ? "border-green-500 bg-green-50" : "border-slate-200"
+                      }`}
+                      onClick={() => setBookingData({ ...bookingData, meetingMode: "in-person" })}
+                    >
                       <RadioGroupItem value="in-person" id="in-person" />
                       <Label
                         htmlFor="in-person"
-                        className="flex items-center gap-2 cursor-pointer text-sm sm:text-base"
+                        className="flex items-center gap-2 cursor-pointer text-sm sm:text-base w-full pointer-events-none"
                       >
                         <MapPin className="w-4 h-4 text-green-600" />
                         In Person
@@ -495,7 +512,11 @@ export default function BusinessPage() {
                         type="button"
                         variant={bookingData.duration === duration ? "default" : "outline"}
                         onClick={() => setBookingData({ ...bookingData, duration: duration as Duration })}
-                        className="flex items-center justify-center gap-2 py-3 h-11 sm:h-auto text-sm sm:text-base"
+                          className={`flex items-center justify-center gap-2 py-3 h-11 sm:h-auto text-sm sm:text-base cursor-pointer transition-all duration-200 hover:shadow-md ${
+                            bookingData.duration === duration 
+                              ? "bg-blue-600 text-white border-blue-600 hover:bg-blue-700" 
+                              : "border-2 hover:border-blue-400 hover:bg-blue-50"
+                          }`}
                       >
                         <Clock className="w-4 h-4" />
                         {duration} min
@@ -503,62 +524,24 @@ export default function BusinessPage() {
                     ))}
                   </div>
                 </div>
-
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <Button
-                    variant="outline"
-                    onClick={() => setStep("contact")}
-                    className="sm:w-auto h-11 sm:h-12 text-sm sm:text-base"
-                  >
-                    <ChevronLeft className="w-4 h-4 mr-1" />
-                    Back
-                  </Button>
-                  <Button
-                    onClick={handleMeetingTypeSubmit}
-                    disabled={!bookingData.meetingMode || !bookingData.duration}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 h-11 sm:h-12 text-sm sm:text-base"
-                  >
-                    View Available Times
-                  </Button>
-                </div>
               </CardContent>
             </Card>
-          )}
 
-          {/* Step 3: Calendar */}
-          {step === "calendar" && (
+              {/* Available Slots - Auto-show when mode and duration selected */}
+              {bookingData.meetingMode && bookingData.duration && (
             <Card className="bg-white/80 backdrop-blur-sm border-slate-200">
               <CardHeader className="pb-4 sm:pb-6">
                 <CardTitle className="flex items-center gap-2 text-slate-900 text-lg sm:text-xl">
-                  <div className="w-6 h-6 sm:w-8 sm:h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                    <span className="text-blue-600 font-semibold text-xs sm:text-sm">3</span>
-                  </div>
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                    <span>Available Times</span>
-                    <span className="text-sm sm:text-base text-slate-600">
-                      {bookingData.meetingMode === "online" ? "Online" : "In Person"} ({bookingData.duration} min)
-                    </span>
-                  </div>
+                      <Calendar className="w-5 h-5 text-blue-600" />
+                      Available Slots - {bookingData.meetingMode === "online" ? "Online" : "In Person"} ({bookingData.duration} min)
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
-                {/* Header for Available Slots */}
-                <div className="mb-4 sm:mb-6">
-                  <div className="flex items-center justify-center mb-4 p-3 bg-slate-50 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <Calendar className="w-4 h-4 text-slate-600" />
-                      <span className="font-semibold text-slate-900 text-sm sm:text-base">
-                        All Available Future Slots
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Counters */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mb-4 sm:mb-6">
+                    {/* Stats */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mb-6">
                   <div className="bg-slate-50 p-2 sm:p-3 rounded-lg text-center">
                     <div className="text-lg sm:text-2xl font-bold text-slate-900">{stats.totalBookingsThisWeek || 0}</div>
-                    <div className="text-xs sm:text-sm text-slate-600">Total bookings this week</div>
+                        <div className="text-xs sm:text-sm text-slate-600">Bookings this week</div>
                   </div>
                   <div className="bg-slate-50 p-2 sm:p-3 rounded-lg text-center">
                     <div className="text-lg sm:text-2xl font-bold text-slate-900">{stats.upcomingMeetings || 0}</div>
@@ -566,11 +549,11 @@ export default function BusinessPage() {
                   </div>
                   <div className="bg-blue-50 p-2 sm:p-3 rounded-lg text-center">
                     <div className="text-lg sm:text-2xl font-bold text-blue-600">{stats.slotsAvailableToday || 0}</div>
-                    <div className="text-xs sm:text-sm text-slate-600">Slots available today</div>
+                        <div className="text-xs sm:text-sm text-slate-600">Available today</div>
                   </div>
                   <div className="bg-green-50 p-2 sm:p-3 rounded-lg text-center">
                     <div className="text-lg sm:text-2xl font-bold text-green-600">{stats.slotsThisMonth || 0}</div>
-                    <div className="text-xs sm:text-sm text-slate-600">Slots this month</div>
+                        <div className="text-xs sm:text-sm text-slate-600">Available this month</div>
                   </div>
                 </div>
 
@@ -585,99 +568,289 @@ export default function BusinessPage() {
                     <span className="text-xs sm:text-sm text-slate-600">Free Available</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 sm:w-4 sm:h-4 bg-slate-400 rounded"></div>
+                        <div className="w-3 h-3 sm:w-4 sm:h-4 bg-red-500 rounded"></div>
                     <span className="text-xs sm:text-sm text-slate-600">Booked</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 sm:w-4 sm:h-4 bg-amber-500 rounded"></div>
+                        <div className="w-3 h-3 sm:w-4 sm:h-4 bg-yellow-500 rounded"></div>
                     <span className="text-xs sm:text-sm text-slate-600">Pending</span>
                   </div>
                 </div>
 
-                {/* Time Zone */}
-                <div className="mb-4 sm:mb-6 p-3 bg-blue-50 rounded-lg">
-                  <p className="text-xs sm:text-sm text-slate-700 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
-                    <span className="flex items-center">
-                      <Clock className="w-3 h-3 sm:w-4 sm:h-4 inline mr-1" />
-                      Times shown in: <strong className="ml-1">Eastern Time (EST)</strong>
-                    </span>
-                    <Button
-                      variant="link"
-                      className="text-blue-600 p-0 sm:ml-2 h-auto text-xs sm:text-sm self-start sm:self-auto"
-                    >
-                      Change
-                    </Button>
-                  </p>
-                </div>
-
-                {/* Back Button */}
-                <div className="mb-4">
-                  <Button
-                    variant="outline"
-                    onClick={() => setStep("meeting-type")}
-                    className="flex items-center gap-1 h-10 sm:h-11 text-sm sm:text-base"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                    Back to Meeting Type
-                  </Button>
-                </div>
-
-                {/* Available Slots */}
+                    {/* Available Slots - All slots, clickable */}
                 <div className="space-y-4">
                   <h3 className="font-semibold text-slate-900 text-base sm:text-lg">Available Time Slots</h3>
                   {loading ? (
                     <div className="text-center py-8 text-slate-600">Loading slots...</div>
                   ) : getAvailableSlots().length === 0 ? (
-                    <div className="text-center py-8 text-slate-600">No available slots found</div>
-                  ) : (
-                  <div className="space-y-4 max-h-96 overflow-y-auto">
+                        <div className="text-center py-8 text-slate-600">
+                          <div className="mb-2">No available slots found for:</div>
+                          <div className="font-medium">
+                            {bookingData.meetingMode === "online" ? "Online" : "In Person"} meetings • {bookingData.duration} minutes duration
+                          </div>
+                          <div className="text-sm mt-2 text-slate-500">
+                            Try selecting a different meeting mode or duration
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-3 max-h-96 overflow-y-auto overflow-x-hidden">
                     {getAvailableSlots().map((slot) => (
-                      <Button
+                            <button
                         key={slot.id}
-                        variant="outline"
                         onClick={() => handleSlotSelect(slot)}
                         disabled={slot.state !== "available"}
-                        className={`p-3 sm:p-4 h-auto justify-between text-left ${
+                              className={`w-full p-3 sm:p-4 rounded-lg border-2 text-left transition-all duration-200 cursor-pointer hover:shadow-md ${
                           slot.type === "paid"
-                            ? "border-blue-200 hover:bg-blue-50"
-                            : "border-green-200 hover:bg-green-50"
-                        } ${slot.state !== "available" ? "opacity-50 cursor-not-allowed" : ""}`}
-                      >
+                                  ? "border-blue-200 hover:border-blue-400 hover:bg-blue-50"
+                                  : "border-green-200 hover:border-green-400 hover:bg-green-50"
+                              } ${slot.state !== "available" ? "opacity-50 cursor-not-allowed" : "hover:shadow-lg"}`}
+                            >
+                              <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
                           <div
-                            className={`w-2 h-2 sm:w-3 sm:h-3 rounded-full flex-shrink-0 ${slot.type === "paid" ? "bg-blue-500" : "bg-green-500"}`}
+                                    className={`w-3 h-3 sm:w-4 sm:h-4 rounded-full flex-shrink-0 ${slot.type === "paid" ? "bg-blue-500" : "bg-green-500"}`}
                           ></div>
-                          <div className="text-left min-w-0 flex-1">
-                            <div className="font-medium text-xs sm:text-sm truncate">
-                              {new Date(slot.date).toLocaleDateString()} at {slot.time}
+                                  <div className="text-left min-w-0 flex-1 overflow-hidden">
+                                    <div className="font-medium text-sm sm:text-base text-slate-900 truncate">
+                                      {new Date(slot.date).toLocaleDateString("en-US", {
+                                        weekday: "long",
+                                        month: "long",
+                                        day: "numeric",
+                                      })} at {slot.time}
                             </div>
-                            <div className="text-xs text-slate-600">
-                              {bookingData.meetingMode === "online" ? "Online" : "In Person"} • {bookingData.duration}{" "}
-                              min
+                                    <div className="text-xs sm:text-sm text-slate-600 truncate">
+                                      {slot.meeting_mode === "online" ? "Online Meeting" : "In Person Meeting"} • {slot.duration} minutes
                             </div>
                           </div>
                         </div>
                         <div className="text-right flex-shrink-0">
                           {slot.type === "paid" ? (
-                            <Badge variant="secondary" className="bg-blue-100 text-blue-700 text-xs">
+                                    <Badge variant="secondary" className="bg-blue-100 text-blue-700 text-xs sm:text-sm font-medium">
                               ${slot.price}
                             </Badge>
                           ) : (
-                            <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs">
+                                    <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs sm:text-sm font-medium">
                               Free
                             </Badge>
                           )}
                         </div>
-                      </Button>
+                              </div>
+                            </button>
                     ))}
                   </div>
                   )}
                 </div>
               </CardContent>
             </Card>
+              )}
+            </div>
           )}
 
-          {/* Step 4: Payment (for paid slots) */}
+          {/* Step 2: Contact and Purpose */}
+          {step === "contact" && (
+            <Card className="bg-white/80 backdrop-blur-sm border-slate-200">
+              <CardHeader className="pb-4 sm:pb-6">
+                <CardTitle className="flex items-center gap-2 text-slate-900 text-lg sm:text-xl">
+                  <div className="w-6 h-6 sm:w-8 sm:h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                    <span className="text-blue-600 font-semibold text-xs sm:text-sm">2</span>
+                  </div>
+                  Contact and Purpose
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {/* Selected Slot Summary */}
+                {bookingData.selectedSlot && (
+                  <div className="mb-6 p-4 bg-slate-50 rounded-lg">
+                    <h4 className="text-sm font-medium text-slate-700 mb-2">Selected Appointment</h4>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-slate-600">Date & Time:</span>
+                        <span className="font-medium">
+                          {new Date(bookingData.selectedSlot.date).toLocaleDateString("en-US", {
+                            weekday: "short",
+                            month: "short",
+                            day: "numeric",
+                          })} at {bookingData.selectedSlot.time}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-600">Mode:</span>
+                        <span className="font-medium capitalize">{bookingData.meetingMode}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-600">Duration:</span>
+                        <span className="font-medium">{bookingData.duration} minutes</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-600">Type:</span>
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant={bookingData.selectedSlot.type === "paid" ? "default" : "secondary"}
+                            className={`text-xs ${
+                              bookingData.selectedSlot.type === "paid" ? "bg-blue-100 text-blue-800" : "bg-green-100 text-green-800"
+                            }`}
+                          >
+                            {bookingData.selectedSlot.type === "paid" ? "Paid" : "Free"}
+                          </Badge>
+                          {bookingData.selectedSlot.type === "paid" && bookingData.selectedSlot.price && (
+                            <span className="font-medium">${bookingData.selectedSlot.price}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <form onSubmit={handleContactSubmit} className="space-y-4 sm:space-y-6">
+                  <div>
+                    <Label htmlFor="firstName" className="text-slate-700 font-medium text-sm sm:text-base flex items-center gap-1">
+                      First Name <span className="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      id="firstName"
+                      required
+                      value={bookingData.firstName}
+                      onChange={(e) => {
+                        setBookingData({ ...bookingData, firstName: e.target.value })
+                        if (contactErrors.firstName) {
+                          setContactErrors({ ...contactErrors, firstName: "" })
+                        }
+                      }}
+                      className={`mt-1 h-10 sm:h-11 transition-colors ${
+                        contactErrors.firstName 
+                          ? "border-red-500 focus:border-red-500 focus:ring-red-500" 
+                          : "border-slate-300 focus:border-blue-500 focus:ring-blue-500"
+                      }`}
+                      placeholder="Enter your first name"
+                    />
+                    {contactErrors.firstName && (
+                      <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
+                        <AlertCircle className="w-4 h-4" />
+                        {contactErrors.firstName}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <Label htmlFor="email" className="text-slate-700 font-medium text-sm sm:text-base flex items-center gap-1">
+                      Email Address <span className="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      required
+                      value={bookingData.email}
+                      onChange={(e) => {
+                        setBookingData({ ...bookingData, email: e.target.value })
+                        if (contactErrors.email) {
+                          setContactErrors({ ...contactErrors, email: "" })
+                        }
+                      }}
+                      className={`mt-1 h-10 sm:h-11 transition-colors ${
+                        contactErrors.email 
+                          ? "border-red-500 focus:border-red-500 focus:ring-red-500" 
+                          : "border-slate-300 focus:border-blue-500 focus:ring-blue-500"
+                      }`}
+                      placeholder="your.email@company.com"
+                    />
+                    {contactErrors.email && (
+                      <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
+                        <AlertCircle className="w-4 h-4" />
+                        {contactErrors.email}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <Label htmlFor="phone" className="text-slate-700 font-medium text-sm sm:text-base flex items-center gap-1">
+                      Phone Number with Country Code <span className="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      id="phone"
+                      required
+                      value={bookingData.phone}
+                      onChange={(e) => {
+                        setBookingData({ ...bookingData, phone: e.target.value })
+                        if (contactErrors.phone) {
+                          setContactErrors({ ...contactErrors, phone: "" })
+                        }
+                      }}
+                      className={`mt-1 h-10 sm:h-11 transition-colors ${
+                        contactErrors.phone 
+                          ? "border-red-500 focus:border-red-500 focus:ring-red-500" 
+                          : "border-slate-300 focus:border-blue-500 focus:ring-blue-500"
+                      }`}
+                      placeholder="+1 (555) 123-4567"
+                    />
+                    {contactErrors.phone && (
+                      <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
+                        <AlertCircle className="w-4 h-4" />
+                        {contactErrors.phone}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <Label htmlFor="purpose" className="text-slate-700 font-medium text-sm sm:text-base flex items-center gap-1">
+                      Purpose or Description <span className="text-red-500">*</span>
+                    </Label>
+                    <Textarea
+                      id="purpose"
+                      rows={4}
+                      required
+                      value={bookingData.purpose}
+                      onChange={(e) => {
+                        setBookingData({ ...bookingData, purpose: e.target.value })
+                        if (contactErrors.purpose) {
+                          setContactErrors({ ...contactErrors, purpose: "" })
+                        }
+                      }}
+                      className={`mt-1 text-sm sm:text-base transition-colors ${
+                        contactErrors.purpose 
+                          ? "border-red-500 focus:border-red-500 focus:ring-red-500" 
+                          : "border-slate-300 focus:border-blue-500 focus:ring-blue-500"
+                      }`}
+                      placeholder="Tell me what you want to discuss in 3 to 5 sentences (minimum 10 characters)"
+                    />
+                    <div className="flex justify-between items-center mt-1">
+                      {contactErrors.purpose ? (
+                        <p className="text-red-500 text-sm flex items-center gap-1">
+                          <AlertCircle className="w-4 h-4" />
+                          {contactErrors.purpose}
+                        </p>
+                      ) : (
+                        <div></div>
+                      )}
+                      <p className="text-slate-500 text-sm">
+                        {bookingData.purpose.length}/10 characters
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setStep("meeting-overview")}
+                      className="sm:w-auto h-11 sm:h-12 text-sm sm:text-base cursor-pointer transition-all duration-200 hover:bg-slate-50 hover:border-slate-400 hover:shadow-sm"
+                    >
+                      <ChevronLeft className="w-4 h-4 mr-1" />
+                      Back to Meeting
+                    </Button>
+                    <Button
+                      type="submit"
+                      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 h-11 sm:h-12 text-sm sm:text-base cursor-pointer transition-all duration-200 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600 disabled:hover:shadow-none"
+                    >
+                      {bookingData.selectedSlot?.type === "paid" ? "Continue to Payment" : "Confirm Booking"}
+                    </Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          )}
+
+
+          {/* Step 3: Payment (for paid slots) */}
           {step === "payment" && bookingData.selectedSlot?.type === "paid" && (
             <Card className="bg-white/80 backdrop-blur-sm border-slate-200">
               <CardHeader className="pb-4 sm:pb-6">
@@ -726,11 +899,11 @@ export default function BusinessPage() {
                 <div className="flex flex-col sm:flex-row gap-3">
                   <Button
                     variant="outline"
-                    onClick={() => setStep("calendar")}
+                    onClick={() => setStep("contact")}
                     className="sm:w-auto h-11 sm:h-auto text-sm sm:text-base"
                   >
                     <ChevronLeft className="w-4 h-4 mr-1" />
-                    Back
+                    Back to Contact
                   </Button>
                   <Button
                     onClick={async () => {
@@ -757,7 +930,7 @@ export default function BusinessPage() {
             </Card>
           )}
 
-          {/* Step 5: Confirmation */}
+          {/* Step 4: Confirmation */}
           {step === "confirmation" && (
             <Card className="bg-white/80 backdrop-blur-sm border-slate-200">
               <CardContent className="p-4 sm:p-8 text-center">
