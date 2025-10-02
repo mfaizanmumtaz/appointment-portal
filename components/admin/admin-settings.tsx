@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,10 +8,23 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Settings, DollarSign, Clock, MessageSquare, Bell, MapPin } from "lucide-react"
+import { Settings, DollarSign, Clock, MessageSquare, Bell, MapPin, Plus, Trash2, GripVertical, Save } from "lucide-react"
 import { AdminLocations } from "./admin-locations"
+import { 
+  fetchAllQuickReplies, 
+  createQuickReply, 
+  updateQuickReply, 
+  deleteQuickReply,
+  type QuickReply 
+} from "@/lib/quick-reply-utils"
+import { useToast } from "@/hooks/use-toast"
 
 export function AdminSettings() {
+  const { toast } = useToast()
+  const [quickReplies, setQuickReplies] = useState<QuickReply[]>([])
+  const [newReplyText, setNewReplyText] = useState("")
+  const [loadingReplies, setLoadingReplies] = useState(false)
+  
   const [settings, setSettings] = useState({
     pricing: {
       businessConsultation30: 150,
@@ -50,6 +63,107 @@ export function AdminSettings() {
     },
   })
 
+  useEffect(() => {
+    loadQuickReplies()
+  }, [])
+
+  const loadQuickReplies = async () => {
+    setLoadingReplies(true)
+    const result = await fetchAllQuickReplies()
+    if (result.success) {
+      setQuickReplies(result.data)
+    }
+    setLoadingReplies(false)
+  }
+
+  const handleAddQuickReply = async () => {
+    if (!newReplyText.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a message",
+        variant: "destructive"
+      })
+      return
+    }
+
+    const result = await createQuickReply({
+      message: newReplyText,
+      order_index: quickReplies.length + 1
+    })
+
+    if (result.success) {
+      setNewReplyText("")
+      await loadQuickReplies()
+      toast({
+        title: "Success",
+        description: "Quick reply added successfully"
+      })
+    } else {
+      toast({
+        title: "Error",
+        description: "Failed to add quick reply",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const handleDeleteQuickReply = async (id: string) => {
+    const result = await deleteQuickReply(id)
+    if (result.success) {
+      await loadQuickReplies()
+      toast({
+        title: "Success",
+        description: "Quick reply deleted successfully"
+      })
+    } else {
+      toast({
+        title: "Error",
+        description: "Failed to delete quick reply",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const handleToggleActive = async (reply: QuickReply) => {
+    const result = await updateQuickReply(reply.id, {
+      is_active: !reply.is_active
+    })
+
+    if (result.success) {
+      await loadQuickReplies()
+      toast({
+        title: "Success",
+        description: `Quick reply ${reply.is_active ? 'deactivated' : 'activated'}`
+      })
+    } else {
+      toast({
+        title: "Error",
+        description: "Failed to update quick reply",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const handleUpdateReplyText = async (id: string, newText: string) => {
+    const result = await updateQuickReply(id, {
+      message: newText
+    })
+
+    if (result.success) {
+      await loadQuickReplies()
+      toast({
+        title: "Success",
+        description: "Quick reply updated successfully"
+      })
+    } else {
+      toast({
+        title: "Error",
+        description: "Failed to update quick reply",
+        variant: "destructive"
+      })
+    }
+  }
+
   const handleSave = () => {
     // Mock save functionality
     alert("Settings saved successfully!")
@@ -63,7 +177,7 @@ export function AdminSettings() {
       </div>
 
       <Tabs defaultValue="pricing" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="pricing">
             <DollarSign className="w-4 h-4 mr-2" />
             Pricing
@@ -75,6 +189,10 @@ export function AdminSettings() {
           <TabsTrigger value="locations">
             <MapPin className="w-4 h-4 mr-2" />
             Locations
+          </TabsTrigger>
+          <TabsTrigger value="quick-replies">
+            <MessageSquare className="w-4 h-4 mr-2" />
+            Quick Replies
           </TabsTrigger>
           <TabsTrigger value="notifications">
             <Bell className="w-4 h-4 mr-2" />
@@ -247,6 +365,112 @@ export function AdminSettings() {
                     />
                   </div>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="quick-replies">
+          <Card className="card-calm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <MessageSquare className="w-5 h-5" />
+                Quick Replies Management
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Manage quick reply messages that appear in the chat admin panel. These help you respond quickly to common inquiries.
+                </p>
+
+                {/* Add New Quick Reply */}
+                <div className="flex gap-2">
+                  <Input
+                    value={newReplyText}
+                    onChange={(e) => setNewReplyText(e.target.value)}
+                    placeholder="Enter a new quick reply message..."
+                    className="flex-1 rounded-xl"
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        handleAddQuickReply()
+                      }
+                    }}
+                  />
+                  <Button onClick={handleAddQuickReply} className="rounded-xl">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Reply
+                  </Button>
+                </div>
+
+                {/* Quick Replies List */}
+                {loadingReplies ? (
+                  <div className="text-center py-8 text-muted-foreground">Loading quick replies...</div>
+                ) : quickReplies.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No quick replies yet. Add your first one above!
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {quickReplies.map((reply, index) => (
+                      <div
+                        key={reply.id}
+                        className={`p-4 rounded-lg border-2 transition-all ${
+                          reply.is_active
+                            ? 'border-green-200 bg-green-50'
+                            : 'border-gray-200 bg-gray-50 opacity-60'
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <GripVertical className="w-4 h-4 text-muted-foreground cursor-move" />
+                            <span className="text-sm font-medium text-muted-foreground">#{index + 1}</span>
+                          </div>
+                          
+                          <div className="flex-1 space-y-2">
+                            <Textarea
+                              value={reply.message}
+                              onChange={(e) => {
+                                // Update locally first for immediate feedback
+                                setQuickReplies(prev => 
+                                  prev.map(r => r.id === reply.id ? { ...r, message: e.target.value } : r)
+                                )
+                              }}
+                              onBlur={(e) => {
+                                // Save on blur
+                                if (e.target.value !== reply.message) {
+                                  handleUpdateReplyText(reply.id, e.target.value)
+                                }
+                              }}
+                              className="min-h-[60px] rounded-xl"
+                              rows={2}
+                            />
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Switch
+                                  checked={reply.is_active}
+                                  onCheckedChange={() => handleToggleActive(reply)}
+                                />
+                                <Label className="text-sm">
+                                  {reply.is_active ? 'Active' : 'Inactive'}
+                                </Label>
+                              </div>
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={() => handleDeleteQuickReply(reply.id)}
+                                className="rounded-xl"
+                              >
+                                <Trash2 className="w-4 h-4 mr-1" />
+                                Delete
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

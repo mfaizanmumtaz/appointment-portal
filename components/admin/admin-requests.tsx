@@ -8,12 +8,14 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { CheckCircle, XCircle, Clock, MessageSquare, User, Video, MapPin, RefreshCw } from "lucide-react"
-import type { MeetingType } from "@/lib/types/database"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { CheckCircle, XCircle, Clock, MessageSquare, User, Video, MapPin, RefreshCw, Calendar as CalendarIcon, Users, FileText } from "lucide-react"
+import type { MeetingType, EventInvitation } from "@/lib/types/database"
 import { useOffline } from "@/hooks/use-offline"
 import { OfflineStatus, ErrorBanner } from "@/components/ui/offline-status"
 import { useToast } from "@/hooks/use-toast"
 import { sendApprovalEmail, sendCancellationEmail, sendDeclineEmail } from "@/lib/meeting-utils"
+import { fetchEventInvitations, confirmEventInvitation, rejectEventInvitation } from "@/lib/event-utils"
 
 
 interface Appointment {
@@ -41,6 +43,9 @@ export function AdminRequests() {
   const [selectedRequest, setSelectedRequest] = useState<string | null>(null)
   const [responseNote, setResponseNote] = useState("")
   const [loading, setLoading] = useState(true)
+  const [eventInvitations, setEventInvitations] = useState<EventInvitation[]>([])
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
+  const [eventResponseNote, setEventResponseNote] = useState("")
   const { toast } = useToast()
 
   const {
@@ -63,12 +68,23 @@ export function AdminRequests() {
 
   useEffect(() => {
     executeWithOfflineCheck(fetchPendingAppointments)
+    executeWithOfflineCheck(fetchPendingEventInvitations)
   }, [])
 
   const handleManualRefresh = async () => {
     setIsRefreshing(true)
     await executeWithOfflineCheck(fetchPendingAppointments)
+    await executeWithOfflineCheck(fetchPendingEventInvitations)
     setIsRefreshing(false)
+  }
+
+  const fetchPendingEventInvitations = async () => {
+    const result = await fetchEventInvitations()
+    if (result.success) {
+      // Filter only pending invitations
+      setEventInvitations(result.data.filter(inv => inv.status === 'pending'))
+    }
+    setLastUpdated(new Date())
   }
 
   const fetchPendingAppointments = async () => {
@@ -312,7 +328,7 @@ export function AdminRequests() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="heading-font text-3xl font-bold text-foreground mb-2">Requests Queue</h1>
-          <p className="text-muted-foreground">Review and manage free session requests</p>
+          <p className="text-muted-foreground">Review and manage free session requests and event invitations</p>
         </div>
         <OfflineStatus
           isOnline={isOnline}
@@ -325,7 +341,20 @@ export function AdminRequests() {
 
       <ErrorBanner error={error} />
 
-      <div className="grid gap-6">
+      <Tabs defaultValue="sessions" className="space-y-6">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="sessions" className="flex items-center gap-2">
+            <User className="w-4 h-4" />
+            Free Sessions ({pendingRequests.length})
+          </TabsTrigger>
+          <TabsTrigger value="events" className="flex items-center gap-2">
+            <CalendarIcon className="w-4 h-4" />
+            Event Invitations ({eventInvitations.length})
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="sessions" className="space-y-6">
+        <div className="grid gap-6">
         {pendingRequests.length === 0 ? (
           <Card className="card-calm">
             <CardContent className="p-8 text-center">
@@ -506,6 +535,15 @@ export function AdminRequests() {
           ))
         )}
       </div>
+        </TabsContent>
+
+        <TabsContent value="events" className="space-y-6">
+          {/* Event Invitations will go here */}
+          <div className="text-center py-8">
+            <p className="text-slate-600">Event invitations feature coming soon...</p>
+          </div>
+        </TabsContent>
+      </Tabs>
 
       {/* Summary Stats */}
       <Card className="card-calm">

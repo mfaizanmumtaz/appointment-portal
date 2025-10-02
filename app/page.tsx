@@ -72,19 +72,33 @@ export default function HomePage() {
   const validateQuickMessageForm = () => {
     const errors: Record<string, string> = {}
 
-    if (!quickMessageForm.name.trim()) errors.name = "Name is required"
+    // Name validation
+    if (!quickMessageForm.name.trim()) {
+      errors.name = "Name is required"
+    } else if (quickMessageForm.name.trim().length < 2) {
+      errors.name = "Name must be at least 2 characters"
+    }
+
+    // Email validation
     if (!quickMessageForm.email.trim()) {
-      errors.email = "Email is required"
+      errors.email = "Email address is required"
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(quickMessageForm.email)) {
       errors.email = "Please enter a valid email address"
     }
+
+    // Phone validation
     if (!quickMessageForm.phone.trim()) {
       errors.phone = "Phone number is required"
-    } else if (!/^[+]?[1-9][\d]{0,15}$/.test(quickMessageForm.phone.replace(/[\s\-()]/g, ""))) {
+    } else if (!/^[+]?[1-9][\d\s\-()]{7,15}$/.test(quickMessageForm.phone.replace(/[\s\-()]/g, ""))) {
       errors.phone = "Please enter a valid phone number with country code"
     }
-    if (!quickMessageForm.message.trim()) errors.message = "Message is required"
-    else if (quickMessageForm.message.trim().length < 10) errors.message = "Message must be at least 10 characters"
+
+    // Message validation
+    if (!quickMessageForm.message.trim()) {
+      errors.message = "Message is required"
+    } else if (quickMessageForm.message.trim().length < 10) {
+      errors.message = "Please provide at least 10 characters describing your message"
+    }
 
     setQuickMessageErrors(errors)
     return Object.keys(errors).length === 0
