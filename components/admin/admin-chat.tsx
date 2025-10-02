@@ -7,19 +7,13 @@ import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
-import { MessageSquare, Send, User, Clock, Check, CheckCheck, RefreshCw, Mail, Phone } from "lucide-react"
+import { MessageSquare, Send, User, Clock, Check, CheckCheck, RefreshCw, Mail, Phone, Edit3 } from "lucide-react"
 import { fetchInstantMessages, updateInstantMessage, markMessageAsRead, subscribeToMessages, replyToInstantMessage } from "@/lib/message-utils"
 import type { InstantMessage } from "@/lib/types/database"
 import { useOffline } from "@/hooks/use-offline"
 import { OfflineStatus, ErrorBanner } from "@/components/ui/offline-status"
-
-const quickReplies = [
-  "Thank you for your message! I'll get back to you shortly.",
-  "Your request has been received. I'll review it and respond within 24 hours.",
-  "Please provide more details about your project so I can better assist you.",
-  "Your session has been confirmed. You'll receive a calendar invite soon.",
-  "Thank you for your interest in our services.",
-]
+import { supabase } from "@/lib/supabase"
+import { getQuickReplies } from "@/lib/settings-utils"
 
 export function AdminChat() {
   const [messages, setMessages] = useState<InstantMessage[]>([])
@@ -27,6 +21,8 @@ export function AdminChat() {
   const [replyText, setReplyText] = useState("")
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [enhancing, setEnhancing] = useState(false)
+  const [quickReplies, setQuickReplies] = useState<string[]>([])
 
   const {
     isOnline,
@@ -44,6 +40,36 @@ export function AdminChat() {
   useEffect(() => {
     executeWithOfflineCheck(loadMessages)
   }, [])
+  // Load dynamic quick replies
+  useEffect(() => {
+    (async () => {
+      try {
+        const replies = await getQuickReplies()
+        if (replies && Array.isArray(replies) && replies.length > 0) {
+          setQuickReplies(replies)
+        } else {
+          // Fallback defaults if none configured
+          setQuickReplies([
+            "Thank you for your message! I'll get back to you shortly.",
+            "Your request has been received. I'll review it and respond within 24 hours.",
+            "Please provide more details about your project so I can better assist you.",
+            "Your session has been confirmed. You'll receive a calendar invite soon.",
+            "Thank you for your interest in our services.",
+          ])
+        }
+      } catch (e) {
+        console.warn('Failed to load quick replies, using defaults')
+        setQuickReplies([
+          "Thank you for your message! I'll get back to you shortly.",
+          "Your request has been received. I'll review it and respond within 24 hours.",
+          "Please provide more details about your project so I can better assist you.",
+          "Your session has been confirmed. You'll receive a calendar invite soon.",
+          "Thank you for your interest in our services.",
+        ])
+      }
+    })()
+  }, [])
+
 
   // Set up real-time subscription
   useEffect(() => {
@@ -124,6 +150,31 @@ export function AdminChat() {
 
   const handleQuickReply = (reply: string) => {
     setReplyText(reply)
+  }
+
+  const handleEnhanceReply = async () => {
+    if (!selectedMessage || !replyText.trim()) return
+    setEnhancing(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-enhance-reply', {
+        body: {
+          userMessage: selectedMessage.message,
+          replyDraft: replyText
+        }
+      })
+
+      if (error) {
+        console.error('AI enhance error:', error)
+        alert('Failed to enhance reply. Please try again.')
+      } else if (data && data.enhanced) {
+        setReplyText(data.enhanced)
+      }
+    } catch (e) {
+      console.error('Error enhancing reply:', e)
+      alert('Failed to enhance reply. Please try again.')
+    } finally {
+      setEnhancing(false)
+    }
   }
 
   const formatTimestamp = (timestamp: string) => {
@@ -293,8 +344,7 @@ export function AdminChat() {
               <CardContent className="space-y-4">
                 {/* Original Message */}
                 <div className="bg-slate-50 p-4 rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-slate-700">Original Message</span>
+                  <div className="flex items-center justify-end mb-2">
                     <span className="text-xs text-slate-500">
                       {new Date(selectedMessage.created_at).toLocaleString()}
                     </span>
@@ -343,13 +393,30 @@ export function AdminChat() {
                   </div>
 
                   {/* Reply Textarea */}
-                  <Textarea
-                    placeholder="Type your reply here..."
-                    value={replyText}
-                    onChange={(e) => setReplyText(e.target.value)}
-                    rows={4}
-                    disabled={isSubmitting}
-                  />
+                  <div className="relative">
+                    <Textarea
+                      placeholder="Type your reply here..."
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      rows={4}
+                      disabled={isSubmitting}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={handleEnhanceReply}
+                      disabled={!replyText.trim() || enhancing}
+                      title="Enhance with AI"
+                      className="absolute right-2 top-2"
+                    >
+                      {enhancing ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Edit3 className="w-4 h-4" />
+                      )}
+                    </Button>
+                  </div>
 
                   {/* Send Button */}
                   <div className="flex justify-end">
