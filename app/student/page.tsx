@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -15,6 +15,7 @@ import { StudentCheckout } from "@/components/student/student-checkout"
 import Link from "next/link"
 import { evaluateStudentRequest, saveTriageResult, getTriageMessage, formatTriageReasoning } from "@/lib/ai-triage-utils"
 import { sendStudentBookingNotifications } from "@/lib/meeting-utils"
+import { fetchStudentSlotCounts } from "@/lib/calendar-utils"
 
 type Step = "form" | "options" | "calendar" | "checkout" | "triage" | "success"
 type TriageResult = "approved" | "declined" | "uncertain"
@@ -45,6 +46,22 @@ export default function StudentPage() {
     meetingUrl?: string
     venueAddress?: string
   }>({})
+  const [slotCounts, setSlotCounts] = useState<{
+    onlinePaid: number
+    inPersonPaid: number
+  }>({
+    onlinePaid: 0,
+    inPersonPaid: 0
+  })
+
+  // Fetch slot counts when component mounts and when we navigate to options
+  useEffect(() => {
+    if (step === "options") {
+      fetchStudentSlotCounts().then(counts => {
+        setSlotCounts(counts)
+      })
+    }
+  }, [step])
 
   const goBack = () => {
     if (step === "options") setStep("form")
@@ -436,8 +453,15 @@ export default function StudentPage() {
                       <h3 className="text-lg font-semibold text-blue-800">Online (Paid)</h3>
                       <p className="text-blue-600">Direct paid booking, no AI triage</p>
                     </div>
-                    <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center">
-                      <GraduationCap className="w-6 h-6 text-white" />
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center">
+                        <GraduationCap className="w-6 h-6 text-white" />
+                      </div>
+                      <div className="px-2 py-1 bg-blue-100 rounded-full">
+                        <span className="text-xs font-medium text-blue-700">
+                          {slotCounts.onlinePaid} slots available
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -451,8 +475,15 @@ export default function StudentPage() {
                       <h3 className="text-lg font-semibold text-purple-800">In Person (Paid)</h3>
                       <p className="text-purple-600">Direct paid booking, no AI triage</p>
                     </div>
-                    <div className="w-12 h-12 bg-purple-500 rounded-full flex items-center justify-center">
-                      <MapPin className="w-6 h-6 text-white" />
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="w-12 h-12 bg-purple-500 rounded-full flex items-center justify-center">
+                        <MapPin className="w-6 h-6 text-white" />
+                      </div>
+                      <div className="px-2 py-1 bg-purple-100 rounded-full">
+                        <span className="text-xs font-medium text-purple-700">
+                          {slotCounts.inPersonPaid} slots available
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>

@@ -101,3 +101,44 @@ export const fetchBookingStats = async (type: 'business' | 'student') => {
     return { totalBookings: 0, pendingApprovals: 0 }
   }
 }
+
+export const fetchStudentSlotCounts = async () => {
+  try {
+    const { supabase } = await import("@/lib/supabase")
+
+    const today = new Date().toISOString().split('T')[0]
+
+    // Get all available student slots
+    const { data: slots, error } = await supabase
+      .from('time_slots')
+      .select('*')
+      .gte('date', today)
+      .eq('is_available', true)
+      .in('slot_type', ['student', 'both'])
+
+    if (error) {
+      console.error('Error fetching student slots:', error)
+      return { onlinePaid: 0, inPersonPaid: 0 }
+    }
+
+    const availableSlots = slots || []
+
+    // Count online paid slots
+    const onlinePaidCount = availableSlots.filter((slot: any) => 
+      slot.session_type === 'paid' && slot.meeting_mode === 'online'
+    ).length
+
+    // Count in-person paid slots  
+    const inPersonPaidCount = availableSlots.filter((slot: any) =>
+      slot.session_type === 'paid' && slot.meeting_mode === 'in-person'
+    ).length
+
+    return {
+      onlinePaid: onlinePaidCount,
+      inPersonPaid: inPersonPaidCount
+    }
+  } catch (error) {
+    console.error('Error fetching student slot counts:', error)
+    return { onlinePaid: 0, inPersonPaid: 0 }
+  }
+}

@@ -490,19 +490,24 @@ export default function BusinessPage() {
                     onValueChange={(value) => setBookingData({ ...bookingData, meetingMode: value as MeetingMode })}
                     className="space-y-3"
                   >
-                    <div 
+                    <div
                       className={`flex items-center space-x-3 p-3 sm:p-4 border-2 rounded-lg cursor-pointer transition-all duration-200 hover:border-blue-400 hover:bg-blue-50 hover:shadow-sm ${
                         bookingData.meetingMode === "online" ? "border-blue-500 bg-blue-50" : "border-slate-200"
                       }`}
                       onClick={() => setBookingData({ ...bookingData, meetingMode: "online" })}
                     >
                       <RadioGroupItem value="online" id="online" />
-                      <Label htmlFor="online" className="flex items-center gap-2 cursor-pointer text-sm sm:text-base w-full pointer-events-none">
-                        <Video className="w-4 h-4 text-blue-600" />
-                        Online (Video Call)
+                      <Label htmlFor="online" className="flex items-center justify-between gap-2 cursor-pointer text-sm sm:text-base w-full pointer-events-none">
+                        <div className="flex items-center gap-2">
+                          <Video className="w-4 h-4 text-blue-600" />
+                          Online (Video Call)
+                        </div>
+                        <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-100">
+                          {availableSlots.filter(s => s.meeting_mode === 'online' && s.state === 'available').length} available
+                        </Badge>
                       </Label>
                     </div>
-                    <div 
+                    <div
                       className={`flex items-center space-x-3 p-3 sm:p-4 border-2 rounded-lg cursor-pointer transition-all duration-200 hover:border-green-400 hover:bg-green-50 hover:shadow-sm ${
                         bookingData.meetingMode === "in-person" ? "border-green-500 bg-green-50" : "border-slate-200"
                       }`}
@@ -511,10 +516,15 @@ export default function BusinessPage() {
                       <RadioGroupItem value="in-person" id="in-person" />
                       <Label
                         htmlFor="in-person"
-                        className="flex items-center gap-2 cursor-pointer text-sm sm:text-base w-full pointer-events-none"
+                        className="flex items-center justify-between gap-2 cursor-pointer text-sm sm:text-base w-full pointer-events-none"
                       >
-                        <MapPin className="w-4 h-4 text-green-600" />
-                        In Person
+                        <div className="flex items-center gap-2">
+                          <MapPin className="w-4 h-4 text-green-600" />
+                          In Person
+                        </div>
+                        <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100">
+                          {availableSlots.filter(s => s.meeting_mode === 'in-person' && s.state === 'available').length} available
+                        </Badge>
                       </Label>
                     </div>
                   </RadioGroup>
