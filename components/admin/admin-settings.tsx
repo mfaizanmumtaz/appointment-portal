@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,8 +8,10 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Settings, DollarSign, Clock, MessageSquare, Bell, MapPin } from "lucide-react"
+import { Settings, DollarSign, Clock, MessageSquare, Bell, MapPin, Plus, X, RefreshCw, Trash2 } from "lucide-react"
 import { AdminLocations } from "./admin-locations"
+import { fetchQuickMessages, saveQuickMessages, type AdminQuickMessage } from "@/lib/quick-message-utils"
+import { useToast } from "@/hooks/use-toast"
 
 export function AdminSettings() {
   const [settings, setSettings] = useState({
@@ -49,10 +51,70 @@ export function AdminSettings() {
       declineEmail: "Thank you for your interest. Unfortunately...",
     },
   })
+  
+  const [quickMessages, setQuickMessages] = useState<string[]>([])
+  const [isLoadingQuickMessages, setIsLoadingQuickMessages] = useState(true)
+  const [isSavingQuickMessages, setIsSavingQuickMessages] = useState(false)
+  const { toast } = useToast()
 
-  const handleSave = () => {
-    // Mock save functionality
-    alert("Settings saved successfully!")
+  // Load quick messages from database
+  useEffect(() => {
+    loadQuickMessages()
+  }, [])
+
+  const loadQuickMessages = async () => {
+    setIsLoadingQuickMessages(true)
+    const result = await fetchQuickMessages()
+    if (result.success) {
+      setQuickMessages(result.data.map(msg => msg.message))
+    }
+    setIsLoadingQuickMessages(false)
+  }
+
+  const handleSave = async () => {
+    // Save regular settings (mock functionality for now)
+    toast({
+      title: "Settings Saved",
+      description: "Your settings have been saved successfully.",
+    })
+  }
+
+  const handleSaveQuickMessages = async () => {
+    // Validate that all messages have content
+    const emptyMessages = quickMessages.filter(msg => !msg.trim())
+    if (emptyMessages.length > 0) {
+      toast({
+        title: "Validation Error",
+        description: "All quick message fields are required. Please fill in all messages or remove empty ones.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSavingQuickMessages(true)
+    const result = await saveQuickMessages(quickMessages)
+    if (result.success) {
+      toast({
+        title: "Quick Messages Saved",
+        description: "Your quick messages have been saved successfully.",
+      })
+    } else {
+      toast({
+        title: "Save Failed",
+        description: "Failed to save quick messages. Please try again.",
+        variant: "destructive",
+      })
+    }
+    setIsSavingQuickMessages(false)
+  }
+
+  const handleDeleteQuickMessage = (index: number) => {
+    const newMessages = quickMessages.filter((_, i) => i !== index)
+    setQuickMessages(newMessages)
+    toast({
+      title: "Message Removed",
+      description: "Quick message has been removed. Don't forget to save your changes.",
+    })
   }
 
   return (
@@ -63,26 +125,30 @@ export function AdminSettings() {
       </div>
 
       <Tabs defaultValue="pricing" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5">
-          <TabsTrigger value="pricing">
+        <TabsList className="grid w-full grid-cols-6">
+          <TabsTrigger value="pricing" className="cursor-pointer">
             <DollarSign className="w-4 h-4 mr-2" />
             Pricing
           </TabsTrigger>
-          <TabsTrigger value="availability">
+          <TabsTrigger value="availability" className="cursor-pointer">
             <Clock className="w-4 h-4 mr-2" />
             Availability
           </TabsTrigger>
-          <TabsTrigger value="locations">
+          <TabsTrigger value="locations" className="cursor-pointer">
             <MapPin className="w-4 h-4 mr-2" />
             Locations
           </TabsTrigger>
-          <TabsTrigger value="notifications">
+          <TabsTrigger value="notifications" className="cursor-pointer">
             <Bell className="w-4 h-4 mr-2" />
             Notifications
           </TabsTrigger>
-          <TabsTrigger value="templates">
+          <TabsTrigger value="templates" className="cursor-pointer">
             <MessageSquare className="w-4 h-4 mr-2" />
             Templates
+          </TabsTrigger>
+          <TabsTrigger value="quickMessages" className="cursor-pointer">
+            <MessageSquare className="w-4 h-4 mr-2" />
+            Quick Messages
           </TabsTrigger>
         </TabsList>
 
@@ -392,10 +458,93 @@ export function AdminSettings() {
         <TabsContent value="locations">
           <AdminLocations />
         </TabsContent>
+
+        <TabsContent value="quickMessages">
+          <Card className="card-calm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <MessageSquare className="w-5 h-5" />
+                Quick Messages Configuration
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Manage quick reply messages that appear in the admin chat interface
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {isLoadingQuickMessages ? (
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground">Loading quick messages...</p>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-3">
+                    {quickMessages.map((message, index) => (
+                      <div key={index} className="flex items-start gap-3 p-3 border rounded-lg">
+                        <Textarea
+                          value={message}
+                          onChange={(e) => {
+                            const newMessages = [...quickMessages]
+                            newMessages[index] = e.target.value
+                            setQuickMessages(newMessages)
+                          }}
+                          className="flex-1 min-h-[60px] rounded-xl"
+                          placeholder="Enter quick message... (required)"
+                          disabled={isSavingQuickMessages}
+                          required
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDeleteQuickMessage(index)}
+                          disabled={isSavingQuickMessages}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50 cursor-pointer"
+                          title="Delete this message"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  <div className="flex gap-3">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setQuickMessages([...quickMessages, ""])
+                      }}
+                      className="flex-1 cursor-pointer"
+                      disabled={isSavingQuickMessages}
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add New Quick Message
+                    </Button>
+                    <Button
+                      onClick={handleSaveQuickMessages}
+                      disabled={isSavingQuickMessages}
+                      className="bg-blue-600 hover:bg-blue-700 cursor-pointer"
+                    >
+                      {isSavingQuickMessages ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Settings className="w-4 h-4 mr-2" />
+                          Save Quick Messages
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       <div className="flex justify-end">
-        <Button onClick={handleSave} className="btn-large btn-primary">
+        <Button onClick={handleSave} className="btn-large btn-primary cursor-pointer">
           <Settings className="w-4 h-4 mr-2" />
           Save All Settings
         </Button>

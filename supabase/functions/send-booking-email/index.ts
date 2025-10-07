@@ -436,7 +436,7 @@ serve(async (req) => {
     if (emailData.adminEmail) {
       console.log("📧 Sending admin notification email");
 
-      const adminSubject = `🔔 New ${emailData.adminEmail.bookingType.charAt(0).toUpperCase() + emailData.adminEmail.bookingType.slice(1)} Booking from ${emailData.adminEmail.clientName}`;
+      const isFreeSession = emailData.adminEmail.sessionType === 'free';\n      const adminSubject = isFreeSession \n        ? `🎆 Free ${emailData.adminEmail.bookingType.charAt(0).toUpperCase() + emailData.adminEmail.bookingType.slice(1)} Session Request from ${emailData.adminEmail.clientName} - APPROVAL NEEDED`\n        : `🔔 New ${emailData.adminEmail.bookingType.charAt(0).toUpperCase() + emailData.adminEmail.bookingType.slice(1)} Booking from ${emailData.adminEmail.clientName}`;
 
       const adminResponse = await fetch("https://api.resend.com/emails", {
         method: "POST",

@@ -25,9 +25,11 @@ import {
   Download,
   Mail,
   CalendarDays,
+  RefreshCw,
 } from "lucide-react"
-import { fetchEventInvitations, confirmEventInvitation, rejectEventInvitation, subscribeToEventInvitations } from "@/lib/event-utils"
+import { fetchEventInvitations, confirmEventInvitation, rejectEventInvitation, subscribeToEventInvitations, sendEventConfirmationEmail, sendEventRejectionEmail } from "@/lib/event-utils"
 import type { EventInvitation } from "@/lib/types/database"
+import { useToast } from "@/hooks/use-toast"
 
 // Use EventInvitation type from database types
 type EventRequest = EventInvitation & {
@@ -38,6 +40,8 @@ type EventRequest = EventInvitation & {
   eventDetails: string // Map from event_details
   submittedAt: string // Map from created_at
   rejectionReason?: string // Map from rejection_reason
+  attachment?: string // Map from attachment_name
+  attachmentUrl?: string // Map from attachment_url
 }
 
 
@@ -50,6 +54,51 @@ export function AdminEvents() {
   const [eventToReject, setEventToReject] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const { toast } = useToast()
+
+  // Helper function to safely format dates
+  const formatDate = (dateString: string) => {
+    if (!dateString) return "No date set"
+    const date = new Date(dateString)
+    if (isNaN(date.getTime())) return "Invalid date"
+    return date.toLocaleDateString()
+  }
+
+  // Helper function to safely format dates with options
+  const formatDateWithOptions = (dateString: string, options: Intl.DateTimeFormatOptions) => {
+    if (!dateString) return "No date set"
+    const date = new Date(dateString)
+    if (isNaN(date.getTime())) return "Invalid date"
+    return date.toLocaleDateString("en-US", options)
+  }
+
+  // Helper function to safely get date parts
+  const getDatePart = (dateString: string, part: 'date' | 'month') => {
+    if (!dateString) return "?"
+    const date = new Date(dateString)
+    if (isNaN(date.getTime())) return "?"
+    return part === 'date' ? date.getDate().toString() : date.toLocaleDateString("en-US", { month: "short" })
+  }
+
+  // Handle attachment download
+  const handleAttachmentDownload = async (attachmentUrl: string, filename: string) => {
+    try {
+      // Open the attachment URL in a new tab for viewing/downloading
+      window.open(attachmentUrl, '_blank')
+      
+      toast({
+        title: "Opening Attachment",
+        description: `Opening ${filename} in a new tab.`,
+      })
+    } catch (error) {
+      console.error('Error opening attachment:', error)
+      toast({
+        title: "Error",
+        description: "Failed to open attachment. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
 
   // Load events from Supabase
   useEffect(() => {
@@ -83,6 +132,7 @@ export function AdminEvents() {
           submittedAt: new Date(invitation.created_at).toLocaleString(),
           rejectionReason: invitation.rejection_reason,
           attachment: invitation.attachment_name,
+          attachmentUrl: invitation.attachment_url,
         }))
         
         setEvents(mappedEvents)
@@ -107,13 +157,43 @@ export function AdminEvents() {
         setEvents((prev) =>
           prev.map((event) => (event.id === eventId ? { ...event, status: "confirmed" as const } : event)),
         )
-        alert("Event confirmed successfully! Confirmation email will be sent to the organiser.")
+        
+        // Send confirmation email
+        const confirmedEvent = events.find(e => e.id === eventId)
+        if (confirmedEvent) {
+          const emailResult = await sendEventConfirmationEmail(confirmedEvent)
+          if (emailResult.success) {
+            toast({
+              title: "Event Confirmed Successfully! ✅",
+              description: `Event "${confirmedEvent.event_title}" has been confirmed and confirmation email sent to ${confirmedEvent.organiser_name}.`,
+            })
+          } else {
+            toast({
+              title: "Event Confirmed ⚠️",
+              description: "Event confirmed but failed to send email. Please contact the organiser manually.",
+              variant: "destructive",
+            })
+          }
+        } else {
+          toast({
+            title: "Event Confirmed",
+            description: "Event has been confirmed successfully.",
+          })
+        }
       } else {
-        alert("Failed to confirm event. Please try again.")
+        toast({
+          title: "Confirmation Failed",
+          description: "Failed to confirm event. Please try again.",
+          variant: "destructive",
+        })
       }
     } catch (error) {
       console.error('Error confirming event:', error)
-      alert("Failed to confirm event. Please try again.")
+      toast({
+        title: "Confirmation Error",
+        description: "An error occurred while confirming the event. Please try again.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -136,16 +216,47 @@ export function AdminEvents() {
                 : event,
             ),
           )
-          alert(`Event rejected successfully. Rejection email will be sent with reason: ${rejectionReason}`)
+          
+          // Send rejection email
+          const rejectedEvent = events.find(e => e.id === eventToReject)
+          if (rejectedEvent) {
+            const emailResult = await sendEventRejectionEmail(rejectedEvent, rejectionReason)
+            if (emailResult.success) {
+              toast({
+                title: "Event Rejected Successfully ❌",
+                description: `Event "${rejectedEvent.event_title}" has been rejected and rejection email sent to ${rejectedEvent.organiser_name}.`,
+              })
+            } else {
+              toast({
+                title: "Event Rejected ⚠️",
+                description: "Event rejected but failed to send email. Please contact the organiser manually.",
+                variant: "destructive",
+              })
+            }
+          } else {
+            toast({
+              title: "Event Rejected",
+              description: "Event has been rejected successfully.",
+            })
+          }
+          
           setShowRejectDialog(false)
           setRejectionReason("")
           setEventToReject(null)
         } else {
-          alert("Failed to reject event. Please try again.")
+          toast({
+            title: "Rejection Failed",
+            description: "Failed to reject event. Please try again.",
+            variant: "destructive",
+          })
         }
       } catch (error) {
         console.error('Error rejecting event:', error)
-        alert("Failed to reject event. Please try again.")
+        toast({
+          title: "Rejection Error",
+          description: "An error occurred while rejecting the event. Please try again.",
+          variant: "destructive",
+        })
       }
     }
   }
@@ -170,21 +281,25 @@ export function AdminEvents() {
 
   const pendingEvents = events.filter((e) => e.status === "pending")
   const upcomingEvents = events
-    .filter((e) => e.status === "confirmed" && new Date(e.eventDate) >= new Date())
-    .sort((a, b) => new Date(a.eventDate).getTime() - new Date(b.eventDate).getTime())
+    .filter((e) => {
+      if (e.status !== "confirmed") return false
+      if (!e.event_date) return false
+      const eventDate = new Date(e.event_date)
+      return !isNaN(eventDate.getTime()) && eventDate >= new Date()
+    })
+    .sort((a, b) => {
+      const dateA = new Date(a.event_date)
+      const dateB = new Date(b.event_date)
+      if (isNaN(dateA.getTime()) || isNaN(dateB.getTime())) return 0
+      return dateA.getTime() - dateB.getTime()
+    })
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="heading-font text-3xl font-bold text-foreground mb-2">Event Management</h1>
-          <p className="text-muted-foreground">Manage event invitations and speaking engagements</p>
-        </div>
-        <div className="flex items-center justify-center py-12">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-            <p className="text-muted-foreground">Loading event invitations...</p>
-          </div>
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2 text-blue-500" />
+          <p className="text-slate-600">Loading event invitations...</p>
         </div>
       </div>
     )
@@ -202,7 +317,7 @@ export function AdminEvents() {
             <XCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">Error Loading Events</h3>
             <p className="text-muted-foreground mb-4">{error}</p>
-            <Button onClick={loadEvents} variant="outline">
+            <Button onClick={loadEvents} variant="outline" className="cursor-pointer">
               Try Again
             </Button>
           </CardContent>
@@ -213,9 +328,20 @@ export function AdminEvents() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="heading-font text-3xl font-bold text-foreground mb-2">Event Management</h1>
-        <p className="text-muted-foreground">Manage event invitations and speaking engagements</p>
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="heading-font text-3xl font-bold text-foreground mb-2">Event Management</h1>
+          <p className="text-muted-foreground">Manage event invitations and speaking engagements</p>
+        </div>
+        <Button
+          onClick={loadEvents}
+          variant="outline"
+          size="sm"
+          className="cursor-pointer"
+        >
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Refresh
+        </Button>
       </div>
 
       {/* Summary Stats */}
@@ -283,15 +409,15 @@ export function AdminEvents() {
 
       <Tabs defaultValue="pending" className="space-y-6">
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="pending" className="flex items-center gap-2">
+          <TabsTrigger value="pending" className="flex items-center gap-2 cursor-pointer">
             <Clock className="w-4 h-4" />
             Pending ({pendingEvents.length})
           </TabsTrigger>
-          <TabsTrigger value="upcoming" className="flex items-center gap-2">
+          <TabsTrigger value="upcoming" className="flex items-center gap-2 cursor-pointer">
             <Calendar className="w-4 h-4" />
             Upcoming ({upcomingEvents.length})
           </TabsTrigger>
-          <TabsTrigger value="all" className="flex items-center gap-2">
+          <TabsTrigger value="all" className="flex items-center gap-2 cursor-pointer">
             <CalendarDays className="w-4 h-4" />
             All Events ({events.length})
           </TabsTrigger>
@@ -309,11 +435,16 @@ export function AdminEvents() {
             </Card>
           ) : (
             pendingEvents.map((event) => (
-              <Card key={event.id} className="card-calm hover:shadow-lg transition-shadow">
+              <Card key={event.id} className="card-calm hover:shadow-lg transition-shadow cursor-pointer" onClick={() => handleViewDetails(event)}>
                 <CardHeader>
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="flex-1">
-                      <CardTitle className="text-xl mb-2">{event.eventTitle}</CardTitle>
+                      <div className="flex items-center gap-2 mb-2">
+                        <CardTitle className="text-xl">{event.eventTitle}</CardTitle>
+                        {event.attachment && (
+                          <FileText className="w-4 h-4 text-blue-600" title="Has attachment" />
+                        )}
+                      </div>
                       <p className="text-muted-foreground">{event.organiserName}</p>
                     </div>
                     <Badge className={getStatusColor(event.status)}>{event.status}</Badge>
@@ -323,11 +454,11 @@ export function AdminEvents() {
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
                     <div className="flex items-center gap-2">
                       <Calendar className="w-4 h-4 text-muted-foreground" />
-                      <span>{new Date(event.eventDate).toLocaleDateString()}</span>
+                      <span>{formatDate(event.event_date)}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Clock className="w-4 h-4 text-muted-foreground" />
-                      <span>{event.eventTime}</span>
+                      <span>{event.event_time || "No time set"}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <MapPin className="w-4 h-4 text-muted-foreground" />
@@ -346,21 +477,29 @@ export function AdminEvents() {
                   <div className="flex items-center gap-2 text-sm">
                     <span className="font-medium">Travel Expenses:</span>
                     <Badge variant="outline">{event.travelExpenses}</Badge>
-                    {event.attachment && (
-                      <>
-                        <FileText className="w-4 h-4 text-muted-foreground ml-4" />
-                        <span className="text-muted-foreground">{event.attachment}</span>
-                      </>
+                    {event.attachment && event.attachmentUrl && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-auto p-1 ml-4 text-blue-600 hover:text-blue-800"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleAttachmentDownload(event.attachmentUrl!, event.attachment!)
+                        }}
+                      >
+                        <FileText className="w-4 h-4 mr-1" />
+                        <span className="text-sm">{event.attachment}</span>
+                      </Button>
                     )}
                   </div>
 
                   <div className="flex flex-wrap gap-3 pt-4 border-t">
-                    <Button onClick={() => handleViewDetails(event)} variant="outline" className="flex-1 sm:flex-none">
+                    <Button onClick={() => handleViewDetails(event)} variant="outline" className="flex-1 sm:flex-none cursor-pointer">
                       View Details
                     </Button>
                     <Button
                       onClick={() => handleConfirm(event.id)}
-                      className="flex-1 sm:flex-none bg-green-600 hover:bg-green-700 text-white"
+                      className="flex-1 sm:flex-none bg-green-600 hover:bg-green-700 text-white cursor-pointer"
                     >
                       <CheckCircle className="w-4 h-4 mr-2" />
                       Confirm
@@ -368,7 +507,7 @@ export function AdminEvents() {
                     <Button
                       onClick={() => handleRejectClick(event.id)}
                       variant="destructive"
-                      className="flex-1 sm:flex-none"
+                      className="flex-1 sm:flex-none cursor-pointer"
                     >
                       <XCircle className="w-4 h-4 mr-2" />
                       Reject
@@ -403,10 +542,10 @@ export function AdminEvents() {
                       <div className="flex-shrink-0">
                         <div className="w-20 h-20 bg-blue-100 rounded-xl flex flex-col items-center justify-center">
                           <span className="text-3xl font-bold text-blue-600">
-                            {new Date(event.eventDate).getDate()}
+                            {getDatePart(event.event_date, 'date')}
                           </span>
                           <span className="text-xs text-blue-600 uppercase">
-                            {new Date(event.eventDate).toLocaleDateString("en-US", { month: "short" })}
+                            {getDatePart(event.event_date, 'month')}
                           </span>
                         </div>
                       </div>
@@ -421,7 +560,7 @@ export function AdminEvents() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
                           <div className="flex items-center gap-2">
                             <Clock className="w-4 h-4 text-muted-foreground" />
-                            <span>{event.eventTime}</span>
+                            <span>{event.event_time || "No time set"}</span>
                           </div>
                           <div className="flex items-center gap-2">
                             <MapPin className="w-4 h-4 text-muted-foreground" />
@@ -461,11 +600,11 @@ export function AdminEvents() {
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                     <div className="flex items-center gap-2">
                       <Calendar className="w-4 h-4 text-muted-foreground" />
-                      <span>{new Date(event.eventDate).toLocaleDateString()}</span>
+                      <span>{formatDate(event.event_date)}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Clock className="w-4 h-4 text-muted-foreground" />
-                      <span>{event.eventTime}</span>
+                      <span>{event.event_time || "No time set"}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <MapPin className="w-4 h-4 text-muted-foreground" />
@@ -500,13 +639,13 @@ export function AdminEvents() {
             />
           </div>
           <DialogFooter className="flex gap-2">
-            <Button variant="outline" onClick={() => setShowRejectDialog(false)}>
+            <Button variant="outline" onClick={() => setShowRejectDialog(false)} className="cursor-pointer">
               Cancel
             </Button>
             <Button
               onClick={handleRejectSubmit}
               disabled={!rejectionReason.trim()}
-              className="bg-red-600 hover:bg-red-700 text-white"
+              className="bg-red-600 hover:bg-red-700 text-white cursor-pointer"
             >
               <Mail className="w-4 h-4 mr-2" />
               Send Rejection
@@ -537,7 +676,7 @@ export function AdminEvents() {
                       <span className="font-medium">Date</span>
                     </div>
                     <p className="text-base">
-                      {new Date(selectedEvent.eventDate).toLocaleDateString("en-US", {
+                      {formatDateWithOptions(selectedEvent.event_date, {
                         weekday: "long",
                         year: "numeric",
                         month: "long",
@@ -550,7 +689,7 @@ export function AdminEvents() {
                       <Clock className="w-4 h-4" />
                       <span className="font-medium">Time</span>
                     </div>
-                    <p className="text-base">{selectedEvent.eventTime}</p>
+                    <p className="text-base">{selectedEvent.event_time || "No time set"}</p>
                   </div>
                 </div>
 
@@ -588,10 +727,14 @@ export function AdminEvents() {
                   </div>
                 </div>
 
-                {selectedEvent.attachment && (
+                {selectedEvent.attachment && selectedEvent.attachmentUrl && (
                   <div className="space-y-2">
                     <h4 className="font-semibold text-sm text-muted-foreground">Attachment</h4>
-                    <Button variant="outline" className="w-full justify-start bg-transparent">
+                    <Button 
+                      variant="outline" 
+                      className="w-full justify-start bg-transparent hover:bg-blue-50 cursor-pointer"
+                      onClick={() => handleAttachmentDownload(selectedEvent.attachmentUrl!, selectedEvent.attachment!)}
+                    >
                       <FileText className="w-4 h-4 mr-2" />
                       {selectedEvent.attachment}
                       <Download className="w-4 h-4 ml-auto" />
@@ -619,7 +762,7 @@ export function AdminEvents() {
                       handleConfirm(selectedEvent.id)
                       setShowDetailsDialog(false)
                     }}
-                    className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                    className="flex-1 bg-green-600 hover:bg-green-700 text-white cursor-pointer"
                   >
                     <CheckCircle className="w-4 h-4 mr-2" />
                     Confirm Event
@@ -630,7 +773,7 @@ export function AdminEvents() {
                       handleRejectClick(selectedEvent.id)
                     }}
                     variant="destructive"
-                    className="flex-1"
+                    className="flex-1 cursor-pointer"
                   >
                     <XCircle className="w-4 h-4 mr-2" />
                     Reject Event

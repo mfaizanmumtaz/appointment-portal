@@ -12,10 +12,11 @@ import { AdminSlots } from "@/components/admin/admin-slots"
 import { AdminChat } from "@/components/admin/admin-chat"
 import { AdminTriage } from "@/components/admin/admin-triage"
 import { AdminGallery } from "@/components/admin/admin-gallery"
+import { AdminEvents } from "@/components/admin/admin-events"
 import { Home } from "lucide-react"
 import Link from "next/link"
 
-type AdminView = "calendar" | "requests" | "dashboard" | "settings" | "slots" | "chat" | "triage" | "gallery"
+type AdminView = "calendar" | "requests" | "dashboard" | "settings" | "slots" | "chat" | "triage" | "gallery" | "events"
 
 export default function AdminPage() {
   const [currentView, setCurrentView] = useState<AdminView>("dashboard")
@@ -38,6 +39,8 @@ export default function AdminPage() {
         return <AdminTriage />
       case "gallery":
         return <AdminGallery />
+      case "events":
+        return <AdminEvents />
       default:
         return <AdminDashboard />
     }

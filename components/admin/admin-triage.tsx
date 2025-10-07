@@ -331,7 +331,7 @@ export function AdminTriage() {
           </Card>
         ) : (
           refusedEntries.map((entry) => (
-            <Card key={entry.id} className="card-calm">
+            <Card key={entry.id} className="card-calm cursor-pointer hover:shadow-md transition-shadow">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="flex items-center gap-2">
@@ -372,7 +372,7 @@ export function AdminTriage() {
                 </div>
 
                 <div>
-                  <h4 className="font-medium mb-2">Original Request:</h4>
+                  <h4 className="font-medium mb-2">Request:</h4>
                   <p className="text-sm text-muted-foreground bg-muted/30 p-3 rounded-xl">{entry.details.purpose}</p>
                 </div>
 

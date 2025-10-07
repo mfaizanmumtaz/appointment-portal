@@ -366,16 +366,16 @@ export function AdminDashboard() {
       {/* Enhanced dashboard with separate tabs for appointment types */}
       <Tabs defaultValue="overview" className="space-y-6">
         <TabsList className="grid w-full grid-cols-4 bg-muted rounded-xl">
-          <TabsTrigger value="overview" className="rounded-lg">
+          <TabsTrigger value="overview" className="rounded-lg cursor-pointer">
             Overview
           </TabsTrigger>
-          <TabsTrigger value="business" className="rounded-lg">
+          <TabsTrigger value="business" className="rounded-lg cursor-pointer">
             Business
           </TabsTrigger>
-          <TabsTrigger value="student" className="rounded-lg">
+          <TabsTrigger value="student" className="rounded-lg cursor-pointer">
             Students
           </TabsTrigger>
-          <TabsTrigger value="in-person" className="rounded-lg">
+          <TabsTrigger value="in-person" className="rounded-lg cursor-pointer">
             In-Person
           </TabsTrigger>
         </TabsList>

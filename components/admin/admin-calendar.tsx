@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Calendar, Clock, User, DollarSign, Video, MapPin, RefreshCw, XCircle } from "lucide-react"
+import { Calendar, Clock, User, DollarSign, Video, MapPin, RefreshCw, XCircle, CalendarDays, FileText } from "lucide-react"
 import { useOffline } from "@/hooks/use-offline"
 import { OfflineStatus, ErrorBanner } from "@/components/ui/offline-status"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
@@ -13,6 +13,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { sendCancellationEmail } from "@/lib/meeting-utils"
+import { fetchEventInvitations } from "@/lib/event-utils"
+import type { EventInvitation } from "@/lib/types/database"
 
 
 interface Appointment {
@@ -33,6 +35,7 @@ interface Appointment {
 export function AdminCalendar() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
   const [appointments, setAppointments] = useState<Appointment[]>([])
+  const [events, setEvents] = useState<EventInvitation[]>([])
   const [loading, setLoading] = useState(true)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
   const [cancellationReason, setCancellationReason] = useState("")
@@ -49,12 +52,18 @@ export function AdminCalendar() {
   } = useOffline({ autoRefresh: false, refreshInterval: 30000 })
 
   useEffect(() => {
-    executeWithOfflineCheck(fetchAppointments)
+    executeWithOfflineCheck(async () => {
+      await fetchAppointments()
+      await fetchConfirmedEvents()
+    })
   }, [])
 
   const handleManualRefresh = async () => {
     setIsRefreshing(true)
-    await executeWithOfflineCheck(fetchAppointments)
+    await executeWithOfflineCheck(async () => {
+      await fetchAppointments()
+      await fetchConfirmedEvents()
+    })
     setIsRefreshing(false)
   }
 
@@ -78,6 +87,15 @@ export function AdminCalendar() {
     setAppointments(data || [])
     setLastUpdated(new Date())
     setLoading(false)
+  }
+
+  const fetchConfirmedEvents = async () => {
+    const result = await fetchEventInvitations()
+    if (result.success) {
+      // Only show confirmed events
+      const confirmedEvents = result.data.filter(event => event.status === 'confirmed')
+      setEvents(confirmedEvents)
+    }
   }
 
   const getAppointmentsByType = (type: "paid" | "free") => {
@@ -221,14 +239,18 @@ export function AdminCalendar() {
       <ErrorBanner error={error} />
 
       <Tabs defaultValue="paid" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="paid" className="flex items-center gap-2">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="paid" className="flex items-center gap-2 cursor-pointer">
             <DollarSign className="w-4 h-4" />
             Paid Sessions ({getAppointmentsByType("paid").length})
           </TabsTrigger>
-          <TabsTrigger value="free" className="flex items-center gap-2">
+          <TabsTrigger value="free" className="flex items-center gap-2 cursor-pointer">
             <Calendar className="w-4 h-4" />
             Free Sessions ({getAppointmentsByType("free").length})
+          </TabsTrigger>
+          <TabsTrigger value="events" className="flex items-center gap-2 cursor-pointer">
+            <CalendarDays className="w-4 h-4" />
+            Events ({events.filter(e => e.status === 'confirmed').length})
           </TabsTrigger>
         </TabsList>
 
@@ -248,7 +270,7 @@ export function AdminCalendar() {
                   getAppointmentsByType("paid").map((appointment) => (
                     <div
                       key={appointment.id}
-                      className={`p-4 border-l-4 ${getTypeColor(appointment.type)} bg-muted/30 rounded-r-xl`}
+                      className={`p-4 border-l-4 ${getTypeColor(appointment.type)} bg-muted/30 rounded-r-xl cursor-pointer hover:bg-muted/50 transition-colors`}
                     >
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-3">
@@ -266,7 +288,7 @@ export function AdminCalendar() {
                                 variant="destructive"
                                 size="sm"
                                 onClick={() => setCancellingId(appointment.id)}
-                                className="ml-2"
+                                className="ml-2 cursor-pointer"
                               >
                                 <XCircle className="w-4 h-4 mr-1" />
                                 Cancel
@@ -301,12 +323,13 @@ export function AdminCalendar() {
                                   <Button variant="outline" onClick={() => {
                                     setCancellingId(null)
                                     setCancellationReason("")
-                                  }}>
+                                  }} className="cursor-pointer">
                                     Cancel
                                   </Button>
                                   <Button
                                     variant="destructive"
                                     onClick={() => handleCancelAppointment(appointment)}
+                                    className="cursor-pointer"
                                   >
                                     Confirm Cancellation
                                   </Button>
@@ -354,7 +377,7 @@ export function AdminCalendar() {
                   getAppointmentsByType("free").map((appointment) => (
                     <div
                       key={appointment.id}
-                      className={`p-4 border-l-4 ${getTypeColor(appointment.type)} bg-muted/30 rounded-r-xl`}
+                      className={`p-4 border-l-4 ${getTypeColor(appointment.type)} bg-muted/30 rounded-r-xl cursor-pointer hover:bg-muted/50 transition-colors`}
                     >
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-3">
@@ -370,7 +393,7 @@ export function AdminCalendar() {
                                 variant="destructive"
                                 size="sm"
                                 onClick={() => setCancellingId(appointment.id)}
-                                className="ml-2"
+                                className="ml-2 cursor-pointer"
                               >
                                 <XCircle className="w-4 h-4 mr-1" />
                                 Cancel
@@ -405,12 +428,13 @@ export function AdminCalendar() {
                                   <Button variant="outline" onClick={() => {
                                     setCancellingId(null)
                                     setCancellationReason("")
-                                  }}>
+                                  }} className="cursor-pointer">
                                     Cancel
                                   </Button>
                                   <Button
                                     variant="destructive"
                                     onClick={() => handleCancelAppointment(appointment)}
+                                    className="cursor-pointer"
                                   >
                                     Confirm Cancellation
                                   </Button>
@@ -434,6 +458,76 @@ export function AdminCalendar() {
                           <Badge variant="outline">{appointment.type}</Badge>
                         </div>
                       </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="events" className="space-y-4">
+          <Card className="card-calm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CalendarDays className="w-5 h-5" />
+                Confirmed Event Invitations
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {events.length === 0 ? (
+                  <div className="text-center py-8">
+                    <CalendarDays className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">No Confirmed Events</h3>
+                    <p className="text-muted-foreground">Event invitations will appear here once confirmed</p>
+                  </div>
+                ) : (
+                  events.map((event) => (
+                    <div
+                      key={event.id}
+                      className="p-4 border rounded-lg hover:bg-muted/30 transition-colors"
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <h4 className="font-semibold text-lg">{event.event_title}</h4>
+                          <p className="text-muted-foreground">Organiser: {event.organiser_name}</p>
+                        </div>
+                        <Badge className="bg-green-100 text-green-800">
+                          Confirmed
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-muted-foreground">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="w-4 h-4" />
+                          {new Date(event.event_date).toLocaleDateString()}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Clock className="w-4 h-4" />
+                          {event.event_time}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <MapPin className="w-4 h-4" />
+                          {event.venue}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <User className="w-4 h-4" />
+                          {event.audience_size} audience
+                        </div>
+                      </div>
+                      {event.event_details && (
+                        <div className="mt-3 p-3 bg-muted/30 rounded-lg">
+                          <p className="text-sm">{event.event_details}</p>
+                        </div>
+                      )}
+                      {event.attachment_name && (
+                        <div className="mt-3">
+                          <Button variant="outline" size="sm" className="text-xs">
+                            <FileText className="w-3 h-3 mr-1" />
+                            {event.attachment_name}
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   ))
                 )}

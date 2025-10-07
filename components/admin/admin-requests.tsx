@@ -336,7 +336,7 @@ export function AdminRequests() {
           </Card>
         ) : (
           pendingRequests.map((request) => (
-            <Card key={request.id} className="card-calm">
+            <Card key={request.id} className="card-calm cursor-pointer hover:shadow-md transition-shadow">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="flex items-center gap-2">
@@ -425,7 +425,7 @@ export function AdminRequests() {
                               placeholder="https://zoom.us/j/123456789"
                               required
                             />
-                            <Button type="button" variant="outline" onClick={generateZoomLink}>
+                            <Button type="button" variant="outline" onClick={generateZoomLink} className="cursor-pointer">
                               Generate Zoom
                             </Button>
                           </div>
@@ -474,7 +474,7 @@ export function AdminRequests() {
                     <div className="flex gap-3">
                       <Button
                         onClick={() => handleApprove(request.id)}
-                        className="btn-primary"
+                        className="btn-primary cursor-pointer"
                         disabled={
                           meetingDetails.meeting_type === 'online' ? !meetingDetails.meeting_url :
                           meetingDetails.meeting_type === 'in-person' ? !meetingDetails.venue_address :
@@ -484,18 +484,18 @@ export function AdminRequests() {
                         <CheckCircle className="w-4 h-4 mr-2" />
                         Approve with Meeting Details
                       </Button>
-                      <Button onClick={() => handleDecline(request.id)} variant="destructive">
+                      <Button onClick={() => handleDecline(request.id)} variant="destructive" className="cursor-pointer">
                         <XCircle className="w-4 h-4 mr-2" />
                         Decline Request
                       </Button>
-                      <Button onClick={() => setSelectedRequest(null)} variant="outline">
+                      <Button onClick={() => setSelectedRequest(null)} variant="outline" className="cursor-pointer">
                         Cancel
                       </Button>
                     </div>
                   </div>
                 ) : (
                   <div className="flex gap-3">
-                    <Button onClick={() => setSelectedRequest(request.id)} variant="outline">
+                    <Button onClick={() => setSelectedRequest(request.id)} variant="outline" className="cursor-pointer">
                       <Clock className="w-4 h-4 mr-2" />
                       Review Request
                     </Button>

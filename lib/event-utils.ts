@@ -6,6 +6,7 @@ import type { EventInvitation, EventInvitationStatus, AudienceSize, TravelExpens
 export interface CreateEventInvitationData {
   eventTitle: string
   organiserName: string
+  organiserEmail: string
   eventDate: string
   eventTime: string
   venue: string
@@ -35,6 +36,7 @@ export const createEventInvitation = async (data: CreateEventInvitationData) => 
         {
           event_title: data.eventTitle,
           organiser_name: data.organiserName,
+          organiser_email: data.organiserEmail,
           event_date: data.eventDate,
           event_time: data.eventTime,
           venue: data.venue,
@@ -55,6 +57,26 @@ export const createEventInvitation = async (data: CreateEventInvitationData) => 
     }
 
     console.log('✅ Event invitation created successfully:', invitation)
+
+    // Send notification emails
+    try {
+      console.log('📧 Sending notification emails...')
+      
+      // Send admin notification email (don't block on failure)
+      sendEventAdminNotification(invitation).catch(error => {
+        console.error('⚠️ Failed to send admin notification email:', error)
+      })
+
+      // Send organizer confirmation email (don't block on failure)
+      sendEventOrganizerConfirmation(invitation).catch(error => {
+        console.error('⚠️ Failed to send organizer confirmation email:', error)
+      })
+
+      console.log('✅ Notification emails queued successfully')
+    } catch (emailError) {
+      console.error('⚠️ Email sending failed, but invitation created successfully:', emailError)
+    }
+
     return { success: true, data: invitation }
 
   } catch (error) {
@@ -161,6 +183,138 @@ export const getPendingInvitationsCount = async () => {
   } catch (error) {
     console.error('❌ Failed to get pending invitations count:', error)
     return { success: false, count: 0 }
+  }
+}
+
+// Send event confirmation email
+export const sendEventConfirmationEmail = async (invitation: EventInvitation) => {
+  try {
+    console.log('📧 Sending event confirmation email...', invitation.organiser_name)
+
+    const { data, error } = await supabase.functions.invoke('send-event-email', {
+      body: {
+        to: invitation.organiser_email,
+        organiserName: invitation.organiser_name,
+        eventTitle: invitation.event_title,
+        eventDate: invitation.event_date,
+        eventTime: invitation.event_time,
+        venue: invitation.venue,
+        eventDetails: invitation.event_details,
+        type: 'confirmation'
+      }
+    })
+
+    if (error) {
+      console.error('Error sending confirmation email:', error)
+      throw new Error(error.message)
+    }
+
+    console.log('✅ Event confirmation email sent successfully')
+    return { success: true, data }
+
+  } catch (error) {
+    console.error('❌ Failed to send event confirmation email:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+// Send event rejection email
+export const sendEventRejectionEmail = async (invitation: EventInvitation, rejectionReason: string) => {
+  try {
+    console.log('📧 Sending event rejection email...', invitation.organiser_name)
+
+    const { data, error } = await supabase.functions.invoke('send-event-email', {
+      body: {
+        to: invitation.organiser_email,
+        organiserName: invitation.organiser_name,
+        eventTitle: invitation.event_title,
+        eventDate: invitation.event_date,
+        eventTime: invitation.event_time,
+        venue: invitation.venue,
+        eventDetails: invitation.event_details,
+        type: 'rejection',
+        rejectionReason: rejectionReason
+      }
+    })
+
+    if (error) {
+      console.error('Error sending rejection email:', error)
+      throw new Error(error.message)
+    }
+
+    console.log('✅ Event rejection email sent successfully')
+    return { success: true, data }
+
+  } catch (error) {
+    console.error('❌ Failed to send event rejection email:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+// Send admin notification email for new event invitation
+export const sendEventAdminNotification = async (invitation: EventInvitation) => {
+  try {
+    console.log('📧 Sending admin notification for new event invitation...', invitation.event_title)
+
+    const { data, error } = await supabase.functions.invoke('send-event-email', {
+      body: {
+        to: 'irfan@xevensolutions.com', // Admin email
+        organiserName: invitation.organiser_name,
+        organiserEmail: invitation.organiser_email,
+        eventTitle: invitation.event_title,
+        eventDate: invitation.event_date,
+        eventTime: invitation.event_time,
+        venue: invitation.venue,
+        eventDetails: invitation.event_details,
+        audienceSize: invitation.audience_size,
+        travelExpenses: invitation.travel_expenses,
+        type: 'admin_notification'
+      }
+    })
+
+    if (error) {
+      console.error('Error sending admin notification email:', error)
+      throw new Error(error.message)
+    }
+
+    console.log('✅ Admin notification email sent successfully')
+    return { success: true, data }
+
+  } catch (error) {
+    console.error('❌ Failed to send admin notification email:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+// Send organizer confirmation email
+export const sendEventOrganizerConfirmation = async (invitation: EventInvitation) => {
+  try {
+    console.log('📧 Sending organizer confirmation email...', invitation.organiser_name)
+
+    const { data, error } = await supabase.functions.invoke('send-event-email', {
+      body: {
+        to: invitation.organiser_email,
+        organiserName: invitation.organiser_name,
+        eventTitle: invitation.event_title,
+        eventDate: invitation.event_date,
+        eventTime: invitation.event_time,
+        venue: invitation.venue,
+        eventDetails: invitation.event_details,
+        type: 'organizer_confirmation'
+      }
+    })
+
+    if (error) {
+      console.error('Error sending organizer confirmation email:', error)
+      throw new Error(error.message)
+    }
+
+    console.log('✅ Organizer confirmation email sent successfully')
+    return { success: true, data }
+
+  } catch (error) {
+    console.error('❌ Failed to send organizer confirmation email:', error)
+    return { success: false, error: error.message }
   }
 }
 

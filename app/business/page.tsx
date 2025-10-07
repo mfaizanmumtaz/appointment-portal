@@ -340,7 +340,7 @@ export default function BusinessPage() {
         // Don't fail the booking if email fails
       }
     } else {
-      // Free session - no immediate email, just log for CEO approval queue
+      // Free session - send notification to CEO about pending request
       console.log('🔄 Free session request queued for CEO approval:', {
         client: bookingData.firstName,
         email: bookingData.email,
@@ -349,8 +349,25 @@ export default function BusinessPage() {
         purpose: bookingData.purpose
       })
 
-      // TODO: Add notification to CEO about pending free session request
-      // This will be handled by the requests queue system
+      // Send notification email to CEO about pending free session request
+      try {
+        await sendBusinessBookingNotifications({
+          clientName: bookingData.firstName,
+          clientEmail: bookingData.email,
+          clientPhone: bookingData.phone,
+          date: slot.date,
+          time: slot.time,
+          sessionType: 'free',
+          meetingType: bookingData.meetingMode!,
+          purpose: bookingData.purpose,
+          isConfirmed: false // Free sessions need approval
+        })
+
+        console.log('📧 Free session notification sent to CEO for approval')
+      } catch (emailError) {
+        console.error('Failed to send free session notification:', emailError)
+        // Don't fail the booking if email fails
+      }
     }
   }
 

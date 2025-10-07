@@ -16,7 +16,7 @@ import Link from "next/link"
 import { evaluateStudentRequest, saveTriageResult, getTriageMessage, formatTriageReasoning } from "@/lib/ai-triage-utils"
 import { sendStudentBookingNotifications } from "@/lib/meeting-utils"
 
-type Step = "form" | "options" | "calendar" | "checkout" | "triage" | "success" | "declined"
+type Step = "form" | "options" | "calendar" | "checkout" | "triage" | "success"
 type TriageResult = "approved" | "declined" | "uncertain"
 type SessionType = "online-free" | "online-paid" | "in-person"
 
@@ -40,6 +40,7 @@ export default function StudentPage() {
   const [triageReasoning, setTriageReasoning] = useState<string>("")
   const [isTriageLoading, setIsTriageLoading] = useState(false)
   const [selectedSlot, setSelectedSlot] = useState<any>(null)
+  const [isDeclined, setIsDeclined] = useState(false)
   const [generatedMeetingDetails, setGeneratedMeetingDetails] = useState<{
     meetingUrl?: string
     venueAddress?: string
@@ -50,7 +51,6 @@ export default function StudentPage() {
     else if (step === "calendar") setStep("options")
     else if (step === "checkout") setStep("calendar")
     else if (step === "triage") setStep("options")
-    else if (step === "declined") setStep("options")
     else if (step === "success") setStep("form") // For testing
   }
 
@@ -113,7 +113,9 @@ export default function StudentPage() {
           
           // Route user based on AI decision
           if (decision === "declined") {
-            setStep("declined")
+            // Instead of showing rejection, redirect to calendar where they'll see no slots
+            setIsDeclined(true)
+            setStep("calendar")
           } else if (decision === "approved") {
             // AI approved - create pending appointment for CEO review
             await createPendingAppointment()
@@ -256,7 +258,7 @@ export default function StudentPage() {
         // Don't fail the booking if email fails
       }
     } else {
-      // Free session - no immediate email, just log for CEO approval queue
+      // Free session - send notification to CEO about pending request
       console.log('🔄 Free student session request queued for CEO approval:', {
         client: formData.firstName,
         email: formData.email,
@@ -265,8 +267,26 @@ export default function StudentPage() {
         purpose: formData.purpose
       })
 
-      // TODO: Add notification to CEO about pending free session request
-      // This will be handled by the requests queue system
+      // Send notification email to CEO about pending free session request
+      try {
+        await sendStudentBookingNotifications({
+          clientName: formData.firstName,
+          clientEmail: formData.email,
+          clientPhone: formData.phone,
+          date: slot.date,
+          time: slot.time,
+          sessionType: 'free',
+          appointmentType: 'student',
+          meetingType: 'online',
+          purpose: formData.purpose,
+          isConfirmed: false // Free sessions need approval
+        })
+
+        console.log('📧 Free student session notification sent to CEO for approval')
+      } catch (emailError) {
+        console.error('Failed to send free session notification:', emailError)
+        // Don't fail the booking if email fails
+      }
     }
 
     // Note: Slot will be automatically marked as unavailable by database trigger
@@ -486,36 +506,9 @@ export default function StudentPage() {
             </Card>
           )}
 
-          {/* AI Declined Screen */}
-          {step === "declined" && (
-            <Card className="card-calm text-center">
-              <CardContent className="p-8">
-                <div className="space-y-4">
-                  <XCircle className="w-16 h-16 text-red-500 mx-auto" />
-                  <h3 className="text-xl font-semibold text-red-700">Request not approved</h3>
-                  <p className="text-muted-foreground">{getTriageMessage("declined")}</p>
-                  <div className="flex gap-3 justify-center flex-wrap">
-                    <Button asChild variant="outline">
-                      <a href="https://irfangpt.com" target="_blank" rel="noopener noreferrer">
-                        Explore irfanGPT
-                      </a>
-                    </Button>
-                    <Button asChild variant="outline">
-                      <a href="https://xevengpt.com" target="_blank" rel="noopener noreferrer">
-                        Explore XevenGPT
-                      </a>
-                    </Button>
-                    <Button asChild>
-                      <a href="/">Go to Home</a>
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
 
           {/* Calendar Selection */}
-          {step === "calendar" && <StudentCalendar sessionType={sessionType!} onBookingSelect={handleSlotSelect} />}
+          {step === "calendar" && <StudentCalendar sessionType={sessionType!} onBookingSelect={handleSlotSelect} isDeclined={isDeclined} />}
 
           {/* Checkout */}
           {step === "checkout" && sessionType && (

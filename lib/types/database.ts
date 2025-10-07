@@ -192,6 +192,7 @@ export interface EventInvitation {
   id: string
   event_title: string
   organiser_name: string
+  organiser_email: string
   event_date: string
   event_time: string
   venue: string

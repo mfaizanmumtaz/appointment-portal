@@ -36,7 +36,7 @@ interface TimeSlot {
   slot_type: "business" | "student" | "both"
   session_type: "free" | "paid"
   meeting_mode: "online" | "in-person"
-  duration: 15 | 30 | 45
+  duration: 15 | 30 | 45 | 60
   location_id?: string | null
   created_at: string
   locations?: {
@@ -58,7 +58,8 @@ interface BulkCreationSettings {
   slotType: "business" | "student" | "both"
   sessionType: "free" | "paid"
   meetingMode: "online" | "in-person"
-  duration: 15 | 30 | 45
+  duration: 15 | 30 | 45 | 60
+  interval: 15 | 30 | 45 | 60  // New: Configurable interval between slots
   locationId?: string | null  // For in-person meetings
 }
 
@@ -104,6 +105,7 @@ export function AdminSlots() {
   const [selectedSlots, setSelectedSlots] = useState<string[]>([])
   const [previewSlots, setPreviewSlots] = useState<TimeSlot[]>([])
   const [conflictResolution, setConflictResolution] = useState<'skip' | 'delete-and-create'>('skip')
+  const [overlapWarning, setOverlapWarning] = useState<string | null>(null)
 
   const [newSlot, setNewSlot] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -111,7 +113,7 @@ export function AdminSlots() {
     slot_type: "business" as "business" | "student" | "both",
     session_type: "free" as "free" | "paid",
     meeting_mode: "online" as "online" | "in-person",
-    duration: 30 as 15 | 30 | 45,
+    duration: 30 as 15 | 30 | 45 | 60,
     location_id: null as string | null,
   })
 
@@ -185,6 +187,7 @@ export function AdminSlots() {
     sessionType: "free",
     meetingMode: "online",
     duration: 30,
+    interval: 30,  // Default interval matches duration
     locationId: null,
   })
 
@@ -194,6 +197,12 @@ export function AdminSlots() {
       fetchLocations()
     }
   }, [newSlot.meeting_mode, bulkSettings.meetingMode])
+
+  // Check for overlaps when duration or interval changes
+  useEffect(() => {
+    const warning = detectOverlaps(bulkSettings.duration, bulkSettings.interval)
+    setOverlapWarning(warning)
+  }, [bulkSettings.duration, bulkSettings.interval])
 
   const fetchLocations = async () => {
     try {
@@ -419,9 +428,26 @@ export function AdminSlots() {
     }
   }
 
+  // Helper function to detect overlaps and generate warnings
+  const detectOverlaps = (duration: number, interval: number) => {
+    if (duration > interval) {
+      const overlapMinutes = duration - interval
+      return `⚠️ Warning: ${duration}-minute appointments with ${interval}-minute intervals will create ${overlapMinutes}-minute overlaps. Consider adjusting the interval to ${duration} minutes or reducing appointment duration.`
+    }
+    return null
+  }
+
   const generateBulkSlots = async () => {
     try {
       setIsGeneratingPreview(true)
+      setOverlapWarning(null) // Clear previous warnings
+      
+      // Check for potential overlaps
+      const warning = detectOverlaps(bulkSettings.duration, bulkSettings.interval)
+      if (warning) {
+        setOverlapWarning(warning)
+      }
+      
       const generatedSlots: TimeSlot[] = []
       const startDate = new Date(bulkSettings.dateRange.start)
       const endDate = new Date(bulkSettings.dateRange.end)
@@ -475,7 +501,7 @@ export function AdminSlots() {
           }
 
           for (let hour = startHour; hour < endHour; hour++) {
-            for (let min = 0; min < 60; min += 30) {
+            for (let min = 0; min < 60; min += bulkSettings.interval) {
               if (hour === startHour && min < startMin) continue
               if (hour === endHour - 1 && min >= endMin) break
 
@@ -1013,7 +1039,7 @@ export function AdminSlots() {
 
   const SlotCard = ({ slot }: { slot: TimeSlot }) => {
     return (
-      <Card className={`card-calm ${selectedSlots.includes(slot.id) ? "ring-2 ring-primary" : ""}`}>
+      <Card className={`card-calm cursor-pointer hover:shadow-md transition-shadow ${selectedSlots.includes(slot.id) ? "ring-2 ring-primary" : ""}`} onClick={() => toggleSlotSelection(slot.id)}>
         <CardContent className="p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
@@ -1027,7 +1053,7 @@ export function AdminSlots() {
               </span>
             </div>
             <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => handleDeleteSlot(slot.id)}>
+              <Button size="sm" variant="outline" onClick={() => handleDeleteSlot(slot.id)} className="cursor-pointer">
                 <Trash2 className="w-3 h-3" />
               </Button>
             </div>
@@ -1084,11 +1110,11 @@ export function AdminSlots() {
         <div className="flex gap-3">
           {selectedSlots.length > 0 && (
             <>
-              <Button onClick={bulkDeleteSelected} variant="destructive" size="sm">
+              <Button onClick={bulkDeleteSelected} variant="destructive" size="sm" className="cursor-pointer">
                 <Trash2 className="w-4 h-4 mr-2" />
                 Delete Selected ({selectedSlots.length})
               </Button>
-              <Button onClick={clearSelection} variant="outline" size="sm">
+              <Button onClick={clearSelection} variant="outline" size="sm" className="cursor-pointer">
                 Clear Selection
               </Button>
             </>
@@ -1101,11 +1127,11 @@ export function AdminSlots() {
             onRefresh={handleManualRefresh}
             showRefreshButton={true}
           />
-          <Button onClick={() => setIsBulkCreating(true)} className="btn-primary">
+          <Button onClick={() => setIsBulkCreating(true)} className="btn-primary cursor-pointer">
             <CalendarDays className="w-4 h-4 mr-2" />
             Bulk Create
           </Button>
-          <Button onClick={() => setIsCreating(true)} variant="outline">
+          <Button onClick={() => setIsCreating(true)} variant="outline" className="cursor-pointer">
             <Plus className="w-4 h-4 mr-2" />
             Single Slot
           </Button>
@@ -1322,7 +1348,7 @@ export function AdminSlots() {
             </div>
 
             {/* Meeting Mode and Duration */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div>
                 <Label>Meeting Mode</Label>
                 <Select
@@ -1361,6 +1387,29 @@ export function AdminSlots() {
                     <SelectItem value="15">15 minutes</SelectItem>
                     <SelectItem value="30">30 minutes</SelectItem>
                     <SelectItem value="45">45 minutes</SelectItem>
+                    <SelectItem value="60">60 minutes</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Slot Interval (Minutes)</Label>
+                <Select
+                  value={bulkSettings.interval.toString()}
+                  onValueChange={(value) =>
+                    setBulkSettings((prev) => ({
+                      ...prev,
+                      interval: parseInt(value) as any,
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="15">15 minutes</SelectItem>
+                    <SelectItem value="30">30 minutes</SelectItem>
+                    <SelectItem value="45">45 minutes</SelectItem>
+                    <SelectItem value="60">60 minutes</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1439,13 +1488,49 @@ export function AdminSlots() {
             </div>
 
             <p className="text-sm text-muted-foreground">
-              Slots will be created every 30 minutes between the start and end times.
+              Slots will be created every {bulkSettings.interval} minutes between the start and end times.
+              {bulkSettings.duration > bulkSettings.interval && (
+                <span className="text-amber-600 font-medium">
+                  {" "}⚠️ Duration ({bulkSettings.duration}min) is longer than interval ({bulkSettings.interval}min) - appointments will overlap!
+                </span>
+              )}
             </p>
+
+            {/* Overlap Warning Banner */}
+            {overlapWarning && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-semibold text-amber-800 mb-1">Overlap Detected</h4>
+                    <p className="text-sm text-amber-700">{overlapWarning}</p>
+                    <div className="mt-2 flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="bg-white hover:bg-amber-50 border-amber-300 text-amber-700 cursor-pointer"
+                        onClick={() => setBulkSettings(prev => ({ ...prev, interval: prev.duration }))}
+                      >
+                        Fix: Set Interval to {bulkSettings.duration}min
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="bg-white hover:bg-amber-50 border-amber-300 text-amber-700 cursor-pointer"
+                        onClick={() => setBulkSettings(prev => ({ ...prev, duration: prev.interval }))}
+                      >
+                        Fix: Set Duration to {bulkSettings.interval}min
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="flex gap-3">
               <Button
                 onClick={generateBulkSlots}
-                className="btn-primary"
+                className="btn-primary cursor-pointer"
                 disabled={isGeneratingPreview}
               >
                 {isGeneratingPreview ? (
@@ -1460,7 +1545,7 @@ export function AdminSlots() {
                   </>
                 )}
               </Button>
-              <Button onClick={() => setIsBulkCreating(false)} variant="outline">
+              <Button onClick={() => setIsBulkCreating(false)} variant="outline" className="cursor-pointer">
                 Cancel
               </Button>
             </div>
@@ -1603,7 +1688,7 @@ export function AdminSlots() {
             <div className="flex gap-3">
               <Button
                 onClick={confirmBulkCreation}
-                className="btn-primary"
+                className="btn-primary cursor-pointer"
                 disabled={bulkCreationStatus.isProcessing}
               >
                 {bulkCreationStatus.isProcessing ? (
@@ -1628,6 +1713,7 @@ export function AdminSlots() {
                 onClick={() => setShowPreview(false)}
                 variant="outline"
                 disabled={bulkCreationStatus.isProcessing}
+                className="cursor-pointer"
               >
                 Back to Edit
               </Button>
@@ -1638,6 +1724,7 @@ export function AdminSlots() {
                 }}
                 variant="outline"
                 disabled={bulkCreationStatus.isProcessing}
+                className="cursor-pointer"
               >
                 Cancel
               </Button>
@@ -1745,6 +1832,7 @@ export function AdminSlots() {
                     <SelectItem value="15">15 minutes</SelectItem>
                     <SelectItem value="30">30 minutes</SelectItem>
                     <SelectItem value="45">45 minutes</SelectItem>
+                    <SelectItem value="60">60 minutes</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1786,10 +1874,10 @@ export function AdminSlots() {
             </div>
 
             <div className="flex gap-3">
-              <Button onClick={handleCreateSlot} className="btn-primary">
+              <Button onClick={handleCreateSlot} className="btn-primary cursor-pointer">
                 Create Slot
               </Button>
-              <Button onClick={() => setIsCreating(false)} variant="outline">
+              <Button onClick={() => setIsCreating(false)} variant="outline" className="cursor-pointer">
                 Cancel
               </Button>
             </div>
@@ -1799,9 +1887,9 @@ export function AdminSlots() {
 
       <Tabs defaultValue="business" className="space-y-6">
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="business">Business</TabsTrigger>
-          <TabsTrigger value="student">Student</TabsTrigger>
-          <TabsTrigger value="both">Both</TabsTrigger>
+          <TabsTrigger value="business" className="cursor-pointer">Business</TabsTrigger>
+          <TabsTrigger value="student" className="cursor-pointer">Student</TabsTrigger>
+          <TabsTrigger value="both" className="cursor-pointer">Both</TabsTrigger>
         </TabsList>
 
         <TabsContent value="business" className="space-y-4">

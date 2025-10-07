@@ -3,13 +3,13 @@
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Calendar, MessageSquare, BarChart3, Settings, Shield, Clock, ImageIcon, Video } from "lucide-react"
+import { Calendar, MessageSquare, BarChart3, Settings, Shield, Clock, ImageIcon, Video, CalendarDays } from "lucide-react"
 import { useAdminCounts } from "@/hooks/use-admin-counts"
 
 interface AdminSidebarProps {
   currentView: string
   onViewChange: (
-    view: "calendar" | "requests" | "dashboard" | "settings" | "slots" | "chat" | "triage" | "gallery",
+    view: "calendar" | "requests" | "dashboard" | "settings" | "slots" | "chat" | "triage" | "gallery" | "events",
   ) => void
 }
 
@@ -23,6 +23,7 @@ export function AdminSidebar({ currentView, onViewChange }: AdminSidebarProps) {
     { id: "requests", label: "Requests Queue", icon: MessageSquare, badge: counts.pendingRequests > 0 ? counts.pendingRequests.toString() : null },
     { id: "triage", label: "AI Triage Log", icon: Shield, badge: counts.triageEntries > 0 ? counts.triageEntries.toString() : null },
     { id: "chat", label: "Quick Chat", icon: MessageSquare, badge: counts.unreadChats > 0 ? counts.unreadChats.toString() : null },
+    { id: "events", label: "Event Invitations", icon: CalendarDays, badge: null },
     { id: "gallery", label: "Gallery Management", icon: ImageIcon, badge: null },
     { id: "settings", label: "Settings", icon: Settings, badge: null },
   ]
@@ -43,7 +44,7 @@ export function AdminSidebar({ currentView, onViewChange }: AdminSidebarProps) {
             <Button
               key={item.id}
               variant={currentView === item.id ? "default" : "ghost"}
-              className="w-full justify-start rounded-xl h-12 text-left"
+              className="w-full justify-start rounded-xl h-12 text-left cursor-pointer hover:cursor-pointer"
               onClick={() => onViewChange(item.id as any)}
             >
               <Icon className="w-5 h-5 mr-3" />

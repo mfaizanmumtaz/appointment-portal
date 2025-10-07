@@ -24,6 +24,14 @@ export interface ChatReplyEmailData {
   replyDate: string
 }
 
+export interface QuickMessageNotificationData {
+  senderName: string
+  senderEmail: string
+  senderPhone?: string
+  message: string
+  submittedAt: string
+}
+
 // Create a new instant message
 export const createInstantMessage = async (data: CreateMessageData) => {
   try {
@@ -49,6 +57,29 @@ export const createInstantMessage = async (data: CreateMessageData) => {
     }
 
     console.log('✅ Message created successfully:', message)
+
+    // Send notification email to CEO
+    try {
+      console.log('📧 Sending CEO notification for new quick message...')
+      const notificationResult = await sendQuickMessageNotification({
+        senderName: data.name,
+        senderEmail: data.email,
+        senderPhone: data.phone,
+        message: data.message,
+        submittedAt: message.created_at
+      })
+
+      if (!notificationResult.success) {
+        console.warn('⚠️ CEO notification failed but message was created:', notificationResult.error)
+        // Don't fail the entire operation if email fails
+      } else {
+        console.log('✅ CEO notification sent successfully')
+      }
+    } catch (emailError) {
+      console.warn('⚠️ CEO notification failed but message was created:', emailError)
+      // Don't fail the entire operation if email fails
+    }
+
     return { success: true, data: message }
 
   } catch (error) {
@@ -78,6 +109,35 @@ export const fetchInstantMessages = async () => {
   } catch (error) {
     console.error('❌ Failed to fetch messages:', error)
     return { success: false, error: error.message, data: [] }
+  }
+}
+
+// Send quick message notification to CEO
+export const sendQuickMessageNotification = async (notificationData: QuickMessageNotificationData) => {
+  try {
+    console.log('📧 Sending quick message notification to CEO for:', notificationData.senderName)
+
+    const { data, error } = await supabase.functions.invoke('send-quick-message-notification', {
+      body: {
+        senderName: notificationData.senderName,
+        senderEmail: notificationData.senderEmail,
+        senderPhone: notificationData.senderPhone,
+        message: notificationData.message,
+        submittedAt: notificationData.submittedAt
+      }
+    })
+
+    if (error) {
+      console.error('Edge Function error:', error)
+      throw new Error(`Failed to send quick message notification: ${error.message}`)
+    }
+
+    console.log('✅ Quick message notification sent to CEO successfully:', data)
+    return { success: true, data }
+
+  } catch (error) {
+    console.error('❌ Failed to send quick message notification:', error)
+    return { success: false, error: error.message }
   }
 }
 

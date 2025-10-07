@@ -78,21 +78,21 @@ Purpose/Description: "${triageData.purpose}"
 
 EVALUATION CRITERIA:
 APPROVE if the request shows:
-✅ Clear learning objectives (career guidance, skill development, AI/tech learning)
-✅ Student-appropriate topics (internships, portfolio advice, technology learning, career planning)
-✅ Genuine educational intent (asking for guidance, mentorship, advice)
-✅ Appropriate scope for a 45-minute session
+1. Clear learning objectives (career guidance, skill development, AI/tech learning)
+2. Student-appropriate topics (internships, portfolio advice, technology learning, career planning)
+3. Genuine educational intent (asking for guidance, mentorship, advice)
+4. Appropriate scope for a 45-minute session
 
 DECLINE if the request shows:
-❌ Business/commercial intent (seeking paid services, business consulting, investment advice)
-❌ Inappropriate requests (personal favors, non-educational topics)
-❌ Vague or unclear purpose (no specific learning goal)
-❌ Advanced professional topics better suited for paid consultation
+1. Business/commercial intent (seeking paid services, business consulting, investment advice)
+2. Inappropriate requests (personal favors, non-educational topics)
+3. Vague or unclear purpose (no specific learning goal)
+4. Advanced professional topics better suited for paid consultation
 
 UNCERTAIN if:
-🤔 Borderline educational vs professional request
-🤔 Unclear intent that needs human review
-🤔 Complex requests that might need clarification
+1. Borderline educational vs professional request
+2. Unclear intent that needs human review
+3. Complex requests that might need clarification
 
 Please respond with a JSON object containing:
 - decision: "approved", "declined", or "uncertain"

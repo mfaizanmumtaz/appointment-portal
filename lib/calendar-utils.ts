@@ -33,7 +33,8 @@ export interface BookingStats {
 
 export const fetchTimeSlots = async (
   slotTypeFilter: string[],
-  sessionTypeFilter?: "free" | "paid"
+  sessionTypeFilter?: "free" | "paid",
+  meetingModeFilter?: "online" | "in-person"
 ) => {
   try {
     const { supabase } = await import("@/lib/supabase")
@@ -50,6 +51,10 @@ export const fetchTimeSlots = async (
 
     if (sessionTypeFilter) {
       query = query.eq('session_type', sessionTypeFilter)
+    }
+
+    if (meetingModeFilter) {
+      query = query.eq('meeting_mode', meetingModeFilter)
     }
 
     const { data: slots, error } = await query

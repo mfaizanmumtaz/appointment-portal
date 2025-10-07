@@ -14,6 +14,7 @@ interface UnifiedCalendarProps {
   isPaid?: boolean
   onPlanSelect?: (plan: "30min" | "60min" | "6month") => void
   onBookingSelect?: (slot: TimeSlot) => void
+  isDeclined?: boolean
 }
 
 const businessPlans = [
@@ -51,7 +52,8 @@ export function UnifiedCalendar({
   sessionType,
   isPaid = false,
   onPlanSelect,
-  onBookingSelect
+  onBookingSelect,
+  isDeclined = false
 }: UnifiedCalendarProps) {
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
   const [availableSlots, setAvailableSlots] = useState<TimeSlot[]>([])
@@ -69,13 +71,21 @@ export function UnifiedCalendar({
     }, 30000)
 
     return () => clearInterval(interval)
-  }, [calendarType, sessionType])
+  }, [calendarType, sessionType, isDeclined])
 
   const fetchSlots = async () => {
     setLoading(true)
     try {
+      // If student request was declined, show no slots available
+      if (isDeclined && calendarType === "student") {
+        setAvailableSlots([])
+        setLoading(false)
+        return
+      }
+
       let slotTypeFilter: string[]
       let sessionTypeFilter: "free" | "paid" | undefined
+      let meetingModeFilter: "online" | "in-person" | undefined
 
       if (calendarType === "business") {
         slotTypeFilter = ['business', 'both']
@@ -83,12 +93,17 @@ export function UnifiedCalendar({
         slotTypeFilter = ['student', 'both']
         if (sessionType === "online-free") {
           sessionTypeFilter = "free"
-        } else if (sessionType === "online-paid" || sessionType === "in-person") {
+          meetingModeFilter = "online"
+        } else if (sessionType === "online-paid") {
           sessionTypeFilter = "paid"
+          meetingModeFilter = "online"
+        } else if (sessionType === "in-person") {
+          sessionTypeFilter = "paid"
+          meetingModeFilter = "in-person"
         }
       }
 
-      const slots = await fetchTimeSlots(slotTypeFilter, sessionTypeFilter)
+      const slots = await fetchTimeSlots(slotTypeFilter, sessionTypeFilter, meetingModeFilter)
       setAvailableSlots(slots)
     } catch (error) {
       console.error('Error fetching slots:', error)

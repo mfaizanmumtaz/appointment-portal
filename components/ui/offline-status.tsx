@@ -50,6 +50,7 @@ export function OfflineStatus({
           variant="outline"
           size="sm"
           disabled={isRefreshing || !isOnline}
+          className="cursor-pointer"
         >
           <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
           Refresh

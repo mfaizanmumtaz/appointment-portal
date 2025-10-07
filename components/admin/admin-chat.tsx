@@ -7,19 +7,15 @@ import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
-import { MessageSquare, Send, User, Clock, Check, CheckCheck, RefreshCw, Mail, Phone } from "lucide-react"
+import { MessageSquare, Send, User, Clock, Check, CheckCheck, RefreshCw, Mail, Phone, Edit3 } from "lucide-react"
 import { fetchInstantMessages, updateInstantMessage, markMessageAsRead, subscribeToMessages, replyToInstantMessage } from "@/lib/message-utils"
+import { fetchQuickMessages, type AdminQuickMessage } from "@/lib/quick-message-utils"
 import type { InstantMessage } from "@/lib/types/database"
 import { useOffline } from "@/hooks/use-offline"
 import { OfflineStatus, ErrorBanner } from "@/components/ui/offline-status"
+import { supabase } from "@/lib/supabase"
+import { useToast } from "@/hooks/use-toast"
 
-const quickReplies = [
-  "Thank you for your message! I'll get back to you shortly.",
-  "Your request has been received. I'll review it and respond within 24 hours.",
-  "Please provide more details about your project so I can better assist you.",
-  "Your session has been confirmed. You'll receive a calendar invite soon.",
-  "Thank you for your interest in our services.",
-]
 
 export function AdminChat() {
   const [messages, setMessages] = useState<InstantMessage[]>([])
@@ -27,6 +23,9 @@ export function AdminChat() {
   const [replyText, setReplyText] = useState("")
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [quickMessages, setQuickMessages] = useState<AdminQuickMessage[]>([])
+  const [isEnhancing, setIsEnhancing] = useState(false)
+  const { toast } = useToast()
 
   const {
     isOnline,
@@ -40,9 +39,10 @@ export function AdminChat() {
 
   const selectedMessage = messages.find(msg => msg.id === selectedMessageId)
 
-  // Load messages on component mount
+  // Load messages and quick messages on component mount
   useEffect(() => {
     executeWithOfflineCheck(loadMessages)
+    executeWithOfflineCheck(loadQuickMessages)
   }, [])
 
   // Set up real-time subscription
@@ -71,11 +71,18 @@ export function AdminChat() {
       setMessages(result.data)
       // Auto-select first message if none selected
       if (!selectedMessageId && result.data.length > 0) {
-        setSelectedMessageId(result.data[0].id)
+        setSelectedMessageId(result.data[0]?.id || null)
       }
     }
     setLastUpdated(new Date())
     setIsLoading(false)
+  }
+
+  const loadQuickMessages = async () => {
+    const result = await fetchQuickMessages()
+    if (result.success) {
+      setQuickMessages(result.data)
+    }
   }
 
 
@@ -112,11 +119,19 @@ export function AdminChat() {
         // Show success message indicating email was sent
         console.log("✅ Reply sent and email notification delivered")
       } else {
-        alert("Failed to send reply. Please try again.")
+        toast({
+          title: "Send Failed",
+          description: "Failed to send reply. Please try again.",
+          variant: "destructive",
+        })
       }
     } catch (error) {
       console.error("Error sending reply:", error)
-      alert("Failed to send reply. Please try again.")
+      toast({
+        title: "Send Error",
+        description: "An error occurred while sending the reply. Please try again.",
+        variant: "destructive",
+      })
     } finally {
       setIsSubmitting(false)
     }
@@ -124,6 +139,53 @@ export function AdminChat() {
 
   const handleQuickReply = (reply: string) => {
     setReplyText(reply)
+  }
+
+  const handleEnhanceMessage = async () => {
+    if (!replyText.trim() || !selectedMessage) return
+
+    setIsEnhancing(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-enhance-message', {
+        body: {
+          userMessage: selectedMessage.message,
+          adminReply: replyText
+        }
+      })
+
+      if (error) {
+        console.error('Error enhancing message:', error)
+        toast({
+          title: "Enhancement Failed",
+          description: "Failed to enhance message. Please try again.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      if (data.success && data.enhancedMessage) {
+        setReplyText(data.enhancedMessage)
+        toast({
+          title: "Message Enhanced",
+          description: "Your message has been enhanced with AI. Review and send when ready.",
+        })
+      } else {
+        toast({
+          title: "Enhancement Failed",
+          description: "Failed to enhance message. Please try again.",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error('Error calling enhance function:', error)
+      toast({
+        title: "Enhancement Error",
+        description: "An error occurred while enhancing the message. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsEnhancing(false)
+    }
   }
 
   const formatTimestamp = (timestamp: string) => {
@@ -291,10 +353,9 @@ export function AdminChat() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* Original Message */}
+                {/* Message */}
                 <div className="bg-slate-50 p-4 rounded-lg">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-slate-700">Original Message</span>
                     <span className="text-xs text-slate-500">
                       {new Date(selectedMessage.created_at).toLocaleString()}
                     </span>
@@ -320,36 +381,64 @@ export function AdminChat() {
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-slate-700 flex items-center gap-2">
                       {selectedMessage.admin_reply ? 'Send Another Reply' : 'Send Reply'}
-                      <Mail className="w-3 h-3 text-blue-500" title="Email notification will be sent" />
+                      <Mail className="w-3 h-3 text-blue-500" />
                     </span>
                   </div>
 
                   {/* Quick Replies */}
-                  <div className="space-y-2">
-                    <span className="text-xs text-slate-600">Quick Replies:</span>
-                    <div className="flex flex-wrap gap-2">
-                      {quickReplies.slice(0, 3).map((reply, index) => (
-                        <Button
-                          key={index}
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleQuickReply(reply)}
-                          className="text-xs h-7 px-3 rounded-full hover:bg-primary/10"
-                        >
-                          {reply.substring(0, 30)}...
-                        </Button>
-                      ))}
+                  {quickMessages.length > 0 && (
+                    <div className="space-y-2">
+                      <span className="text-xs text-slate-600">Quick Replies:</span>
+                      <div className="flex flex-wrap gap-2">
+                        {quickMessages.slice(0, 3).map((quickMsg) => (
+                          <Button
+                            key={quickMsg.id}
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleQuickReply(quickMsg.message)}
+                            className="text-xs h-7 px-3 rounded-full hover:bg-primary/10"
+                          >
+                            {quickMsg.message.substring(0, 30)}...
+                          </Button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
-                  {/* Reply Textarea */}
-                  <Textarea
-                    placeholder="Type your reply here..."
-                    value={replyText}
-                    onChange={(e) => setReplyText(e.target.value)}
-                    rows={4}
-                    disabled={isSubmitting}
-                  />
+                  {/* Reply Textarea with Enhancement */}
+                  <div className="space-y-2">
+                    <div className="relative">
+                      <Textarea
+                        placeholder="Type your reply here..."
+                        value={replyText}
+                        onChange={(e) => setReplyText(e.target.value)}
+                        rows={4}
+                        disabled={isSubmitting || isEnhancing}
+                        className="pr-12"
+                      />
+                      {replyText.trim() && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={handleEnhanceMessage}
+                          disabled={isSubmitting || isEnhancing}
+                          className="absolute top-2 right-2 h-8 w-8 p-0 hover:bg-blue-50"
+                        >
+                          {isEnhancing ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Edit3 className="w-4 h-4" />
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                    {isEnhancing && (
+                      <div className="text-xs text-blue-600 flex items-center gap-1">
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                        AI is enhancing your message...
+                      </div>
+                    )}
+                  </div>
 
                   {/* Send Button */}
                   <div className="flex justify-end">
