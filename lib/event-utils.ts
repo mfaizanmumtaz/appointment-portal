@@ -30,7 +30,7 @@ export const createEventInvitation = async (data: CreateEventInvitationData) => 
   try {
     console.log('📝 Creating event invitation:', data)
 
-    const { data: invitation, error } = await supabase
+    const { data: invitation, error } = await (supabase as any)
       .from('event_invitations')
       .insert([
         {
@@ -81,7 +81,7 @@ export const createEventInvitation = async (data: CreateEventInvitationData) => 
 
   } catch (error) {
     console.error('❌ Failed to create event invitation:', error)
-    return { success: false, error: error.message }
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
   }
 }
 
@@ -90,7 +90,7 @@ export const fetchEventInvitations = async () => {
   try {
     console.log('📥 Fetching event invitations...')
 
-    const { data: invitations, error } = await supabase
+    const { data: invitations, error } = await (supabase as any)
       .from('event_invitations')
       .select('*')
       .order('created_at', { ascending: false })
@@ -105,7 +105,7 @@ export const fetchEventInvitations = async () => {
 
   } catch (error) {
     console.error('❌ Failed to fetch event invitations:', error)
-    return { success: false, error: error.message, data: [] }
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error', data: [] }
   }
 }
 
@@ -127,7 +127,7 @@ export const updateEventInvitation = async (invitationId: string, updates: Updat
       updateData.confirmed_at = null
     }
 
-    const { data: invitation, error } = await supabase
+    const { data: invitation, error } = await (supabase as any)
       .from('event_invitations')
       .update(updateData)
       .eq('id', invitationId)
@@ -144,7 +144,7 @@ export const updateEventInvitation = async (invitationId: string, updates: Updat
 
   } catch (error) {
     console.error('❌ Failed to update event invitation:', error)
-    return { success: false, error: error.message }
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
   }
 }
 
@@ -168,7 +168,7 @@ export const rejectEventInvitation = async (invitationId: string, rejectionReaso
 // Get pending invitations count
 export const getPendingInvitationsCount = async () => {
   try {
-    const { count, error } = await supabase
+    const { count, error } = await (supabase as any)
       .from('event_invitations')
       .select('*', { count: 'exact', head: true })
       .eq('status', 'pending')
@@ -214,7 +214,7 @@ export const sendEventConfirmationEmail = async (invitation: EventInvitation) =>
 
   } catch (error) {
     console.error('❌ Failed to send event confirmation email:', error)
-    return { success: false, error: error.message }
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
   }
 }
 
@@ -247,7 +247,40 @@ export const sendEventRejectionEmail = async (invitation: EventInvitation, rejec
 
   } catch (error) {
     console.error('❌ Failed to send event rejection email:', error)
-    return { success: false, error: error.message }
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+  }
+}
+
+// Send event cancellation email
+export const sendEventCancellationEmail = async (invitation: EventInvitation, cancellationReason: string) => {
+  try {
+    console.log('📧 Sending event cancellation email...', invitation.organiser_name)
+
+    const { data, error } = await supabase.functions.invoke('send-event-email', {
+      body: {
+        to: invitation.organiser_email,
+        organiserName: invitation.organiser_name,
+        eventTitle: invitation.event_title,
+        eventDate: invitation.event_date,
+        eventTime: invitation.event_time,
+        venue: invitation.venue,
+        eventDetails: invitation.event_details,
+        type: 'cancellation',
+        cancellationReason: cancellationReason
+      }
+    })
+
+    if (error) {
+      console.error('Error sending cancellation email:', error)
+      throw new Error(error.message)
+    }
+
+    console.log('✅ Event cancellation email sent successfully')
+    return { success: true, data }
+
+  } catch (error) {
+    console.error('❌ Failed to send event cancellation email:', error)
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
   }
 }
 
@@ -282,7 +315,7 @@ export const sendEventAdminNotification = async (invitation: EventInvitation) =>
 
   } catch (error) {
     console.error('❌ Failed to send admin notification email:', error)
-    return { success: false, error: error.message }
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
   }
 }
 
@@ -314,7 +347,7 @@ export const sendEventOrganizerConfirmation = async (invitation: EventInvitation
 
   } catch (error) {
     console.error('❌ Failed to send organizer confirmation email:', error)
-    return { success: false, error: error.message }
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
   }
 }
 

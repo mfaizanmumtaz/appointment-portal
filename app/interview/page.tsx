@@ -378,10 +378,18 @@ export default function InterviewPage() {
                   </div>
                 </div>
 
-                <div className="pt-4 sm:pt-6 border-t-2 border-teal-100">
+                <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 pt-4 sm:pt-6 border-t-2 border-teal-100">
+                  <Button
+                    type="button"
+                    asChild
+                    variant="outline"
+                    className="flex-1 rounded-xl h-12 sm:h-14 text-sm sm:text-base font-semibold border-2 border-slate-300 hover:bg-slate-100 transition-all bg-transparent"
+                  >
+                    <Link href="/">Cancel</Link>
+                  </Button>
                   <Button
                     type="submit"
-                    className="w-full bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white rounded-xl h-12 sm:h-14 text-sm sm:text-base font-semibold shadow-lg hover:shadow-xl transition-all transform hover:scale-[1.02]"
+                    className="flex-1 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white rounded-xl h-12 sm:h-14 text-sm sm:text-base font-semibold shadow-lg hover:shadow-xl transition-all transform hover:scale-[1.02]"
                   >
                     <Mic className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
                     Submit

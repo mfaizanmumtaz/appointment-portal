@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { sendCancellationEmail } from "@/lib/meeting-utils"
-import { fetchEventInvitations } from "@/lib/event-utils"
+import { fetchEventInvitations, sendEventCancellationEmail } from "@/lib/event-utils"
 import { fetchInterviewRequests, sendInterviewCancellationEmail } from "@/lib/interview-utils"
 import type { EventInvitation, InterviewRequest } from "@/lib/types/database"
 
@@ -98,7 +98,7 @@ export function AdminCalendar() {
     const result = await fetchEventInvitations()
     if (result.success) {
       // Only show confirmed events
-      const confirmedEvents = result.data.filter(event => event.status === 'confirmed')
+      const confirmedEvents = result.data.filter((event: any) => event.status === 'confirmed')
       setEvents(confirmedEvents)
     }
   }
@@ -107,7 +107,7 @@ export function AdminCalendar() {
     const result = await fetchInterviewRequests()
     if (result.success) {
       // Only show approved interviews
-      const approvedInterviews = result.data.filter(interview => interview.status === 'approved')
+      const approvedInterviews = result.data.filter((interview: any) => interview.status === 'approved')
       setInterviews(approvedInterviews)
     }
   }
@@ -147,12 +147,12 @@ export function AdminCalendar() {
       const { supabase } = await import("@/lib/supabase")
 
       // Update appointment status to cancelled
-      const { error: appointmentError } = await supabase
+      const { error: appointmentError } = await (supabase as any)
         .from('appointments')
-        .update({
+        .update({ 
           status: 'cancelled',
           meeting_notes: cancellationReason ? `Cancelled by CEO: ${cancellationReason}` : 'Cancelled by CEO'
-        })
+        } as any)
         .eq('id', appointment.id)
 
       if (appointmentError) {
@@ -302,6 +302,90 @@ export function AdminCalendar() {
       toast({
         title: "Error",
         description: "Failed to cancel interview",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const handleCancelEvent = async (eventId: string) => {
+    if (!cancellationReason.trim()) {
+      toast({
+        title: "Error",
+        description: "Please provide a reason for cancellation",
+        variant: "destructive"
+      })
+      return
+    }
+
+    setCancellingId(eventId)
+
+    try {
+      const { supabase } = await import("@/lib/supabase")
+      
+      console.log('📝 Starting event cancellation for ID:', eventId)
+      
+      // Get event details for email
+      const { data: event, error: fetchError } = await (supabase as any)
+        .from('event_invitations')
+        .select('*')
+        .eq('id', eventId)
+        .single()
+
+      if (fetchError) {
+        console.error('❌ Error fetching event:', fetchError)
+        throw new Error(`Failed to fetch event: ${fetchError.message}`)
+      }
+
+      if (!event) {
+        console.error('❌ Event not found for ID:', eventId)
+        throw new Error('Event not found')
+      }
+
+      console.log('✅ Event found:', event.event_title, event.status)
+
+      // Update event status to cancelled
+      const { error: updateError } = await (supabase as any)
+        .from('event_invitations')
+        .update({ 
+          status: 'cancelled',
+          admin_notes: cancellationReason,
+          cancelled_at: new Date().toISOString()
+        })
+        .eq('id', eventId)
+
+      if (updateError) {
+        console.error('❌ Error updating event status:', updateError)
+        throw new Error(`Failed to update event: ${updateError.message}`)
+      }
+
+      console.log('✅ Event status updated to cancelled')
+
+      // Send cancellation email to organizer
+      const emailResult = await sendEventCancellationEmail(event, cancellationReason)
+      if (!emailResult.success) {
+        console.warn('Failed to send cancellation email:', emailResult.error)
+        // Don't fail the whole operation, just log the warning
+      }
+
+      // Refresh events
+      await fetchConfirmedEvents()
+
+      toast({
+        title: "Success",
+        description: "Event cancelled and notification sent successfully"
+      })
+
+      // Reset state and close dialog
+      setCancellingId(null)
+      setCancellationReason("")
+      setOpenDialogId(null)
+
+    } catch (error) {
+      console.error('Error:', error)
+      setCancellingId(null) // Reset loading state on error
+      toast({
+        title: "Error",
+        description: "Failed to cancel event",
         variant: "destructive"
       })
     }
@@ -595,9 +679,90 @@ export function AdminCalendar() {
                           <h4 className="font-semibold text-lg">{event.event_title}</h4>
                           <p className="text-muted-foreground">Organiser: {event.organiser_name}</p>
                         </div>
-                        <Badge className="bg-green-100 text-green-800">
-                          Confirmed
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge className="bg-green-100 text-green-800">
+                            {event.status}
+                          </Badge>
+                          <Dialog 
+                            open={openDialogId === event.id} 
+                            onOpenChange={(open) => {
+                              if (open) {
+                                setOpenDialogId(event.id)
+                                setCancellationReason("")
+                                setCancellingId(null)
+                              } else {
+                                setOpenDialogId(null)
+                                setCancellationReason("")
+                                setCancellingId(null)
+                              }
+                            }}
+                          >
+                            <DialogTrigger asChild>
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                disabled={cancellingId === event.id}
+                                className="cursor-pointer"
+                              >
+                                <XCircle className="w-4 h-4 mr-1" />
+                                {cancellingId === event.id ? "Cancelling..." : "Cancel"}
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Cancel Event</DialogTitle>
+                              </DialogHeader>
+                              <div className="space-y-4">
+                                <div>
+                                  <p className="text-sm text-muted-foreground mb-4">
+                                    Are you sure you want to cancel the event <strong>{event.event_title}</strong> organized by <strong>{event.organiser_name}</strong>?
+                                  </p>
+                                </div>
+                                <div className="space-y-2">
+                                  <Label htmlFor={`reason-${event.id}`}>Cancellation Reason *</Label>
+                                  <Textarea
+                                    id={`reason-${event.id}`}
+                                    placeholder="Please provide a reason for cancelling this event..."
+                                    value={cancellationReason}
+                                    onChange={(e) => setCancellationReason(e.target.value)}
+                                    disabled={cancellingId === event.id}
+                                    className="min-h-[80px]"
+                                  />
+                                </div>
+                                <div className="flex gap-2 justify-end">
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                      setOpenDialogId(null)
+                                      setCancellationReason("")
+                                      setCancellingId(null)
+                                    }}
+                                    disabled={cancellingId === event.id}
+                                  >
+                                    Cancel
+                                  </Button>
+                                  <Button
+                                    variant="destructive"
+                                    onClick={() => handleCancelEvent(event.id)}
+                                    disabled={cancellingId === event.id || !cancellationReason.trim()}
+                                  >
+                                    {cancellingId === event.id ? (
+                                      <>
+                                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                                        Cancelling...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <XCircle className="w-4 h-4 mr-2" />
+                                        Cancel Event
+                                      </>
+                                    )}
+                                  </Button>
+                                </div>
+                              </div>
+                            </DialogContent>
+                          </Dialog>
+                        </div>
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-muted-foreground">
                         <div className="flex items-center gap-2">

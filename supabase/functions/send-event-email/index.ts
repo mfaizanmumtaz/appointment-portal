@@ -13,8 +13,9 @@ interface EventEmailData {
   eventTime: string
   venue: string
   eventDetails: string
-  type: 'confirmation' | 'rejection' | 'admin_notification' | 'organizer_confirmation'
+  type: 'confirmation' | 'rejection' | 'admin_notification' | 'organizer_confirmation' | 'cancellation'
   rejectionReason?: string
+  cancellationReason?: string
   audienceSize?: string
   travelExpenses?: string
   organiserEmail?: string
@@ -255,7 +256,7 @@ serve(async (req) => {
         </body>
         </html>
       `
-    } else {
+    } else if (emailData.type === 'rejection') {
       subject = `Event Update: ${emailData.eventTitle}`
       htmlContent = `
         <!DOCTYPE html>
@@ -299,6 +300,63 @@ serve(async (req) => {
           
           <div class="footer">
             <p>This is an automated message from the Irfan Malik consultation platform.</p>
+          </div>
+        </body>
+        </html>
+      `
+    } else if (emailData.type === 'cancellation') {
+      subject = `Event Cancelled: ${emailData.eventTitle}`
+      htmlContent = `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Event Cancelled</title>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+            .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+            .highlight { background: #fef2f2; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #ef4444; }
+            .footer { text-align: center; color: #666; font-size: 14px; margin-top: 30px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>📋 Event Cancelled</h1>
+            <p>Important update regarding your confirmed event</p>
+          </div>
+          
+          <div class="content">
+            <h2>Dear ${emailData.organiserName},</h2>
+            
+            <p>I regret to inform you that I need to cancel my participation in your event. I sincerely apologize for any inconvenience this may cause.</p>
+            
+            <div class="highlight">
+              <h3>📅 Cancelled Event Details:</h3>
+              <p><strong>Event:</strong> ${emailData.eventTitle}</p>
+              <p><strong>Date:</strong> ${emailData.eventDate}</p>
+              <p><strong>Time:</strong> ${emailData.eventTime}</p>
+              <p><strong>Venue:</strong> ${emailData.venue}</p>
+              ${emailData.cancellationReason ? `<p><strong>Reason:</strong> ${emailData.cancellationReason}</p>` : ''}
+            </div>
+            
+            <p><strong>Next Steps:</strong></p>
+            <ul>
+              <li>Please consider alternative speakers for your event</li>
+              <li>Feel free to reach out for future events when my schedule permits</li>
+              <li>I'm happy to provide recommendations for other suitable speakers if helpful</li>
+            </ul>
+            
+            <p>Thank you for your understanding, and I apologize again for the short notice. I wish you success with your event.</p>
+            
+            <p>Best regards,<br>
+            <strong>Irfan Malik</strong><br>
+            CEO, Xeven Solutions</p>
+          </div>
+          
+          <div class="footer">
+            <p>This notification was sent automatically. Please do not reply to this email.</p>
           </div>
         </body>
         </html>
