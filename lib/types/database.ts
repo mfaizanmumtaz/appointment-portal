@@ -7,6 +7,7 @@ export type MessageStatus = 'unread' | 'read' | 'replied'
 export type EventInvitationStatus = 'pending' | 'confirmed' | 'rejected'
 export type AudienceSize = '<50' | '50-100' | '100-250' | '250-500' | '500+'
 export type TravelExpenses = 'Yes' | 'No' | 'Partial'
+export type InterviewStatus = 'pending' | 'approved' | 'rejected' | 'completed' | 'cancelled'
 
 // Supabase Database Types
 export interface Database {
@@ -75,6 +76,14 @@ export interface Database {
           created_at?: string
         }
         Update: Partial<Omit<EventInvitation, 'id' | 'created_at'>>
+      }
+      interview_requests: {
+        Row: InterviewRequest
+        Insert: Omit<InterviewRequest, 'id' | 'created_at'> & {
+          id?: string
+          created_at?: string
+        }
+        Update: Partial<Omit<InterviewRequest, 'id' | 'created_at'>>
       }
     }
     Views: {
@@ -206,6 +215,23 @@ export interface EventInvitation {
   admin_notes?: string | null
   confirmed_at?: string | null
   rejected_at?: string | null
+  created_at: string
+}
+
+export interface InterviewRequest {
+  id: string
+  podcaster_name: string
+  email: string
+  phone: string
+  linkedin_url: string
+  youtube_link: string
+  facebook_link: string
+  agenda: string
+  preferred_date?: string | null
+  notes?: string | null
+  status: InterviewStatus
+  admin_notes?: string | null
+  responded_at?: string | null
   created_at: string
 }
 

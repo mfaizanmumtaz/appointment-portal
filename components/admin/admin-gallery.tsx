@@ -84,88 +84,6 @@ export function AdminGallery() {
     }
   }
 
-  const oldImages = [
-    {
-      id: "1",
-      src: "/business-workshop-presentation.jpg",
-      alt: "Business workshop presentation",
-      title: "Business Workshop Presentation",
-      description: "Leading a strategic business workshop for enterprise clients",
-      uploadDate: "2024-01-15",
-      size: "2.4 MB",
-      dimensions: "1920x1080",
-    },
-    {
-      id: "2",
-      src: "/ai-consultation-meeting.jpg",
-      alt: "AI consultation meeting",
-      title: "AI Consultation Meeting",
-      description: "Discussing AI implementation strategies with clients",
-      uploadDate: "2024-01-12",
-      size: "1.8 MB",
-      dimensions: "1920x1080",
-    },
-    {
-      id: "3",
-      src: "/speaking-at-tech-conference.jpg",
-      alt: "Speaking at tech conference",
-      title: "Tech Conference Speaking",
-      description: "Keynote presentation on AI trends and business transformation",
-      uploadDate: "2024-01-10",
-      size: "3.1 MB",
-      dimensions: "1920x1080",
-    },
-    {
-      id: "4",
-      src: "/student-mentoring-session.jpg",
-      alt: "Student mentoring session",
-      title: "Student Mentoring Session",
-      description: "One-on-one career guidance session with university students",
-      uploadDate: "2024-01-08",
-      size: "2.0 MB",
-      dimensions: "1920x1080",
-    },
-    {
-      id: "5",
-      src: "/team-strategy-meeting.jpg",
-      alt: "Team strategy meeting",
-      title: "Team Strategy Meeting",
-      description: "Strategic planning session with the Xeven Solutions team",
-      uploadDate: "2024-01-05",
-      size: "2.7 MB",
-      dimensions: "1920x1080",
-    },
-    {
-      id: "6",
-      src: "/ai-technology-demonstration.jpg",
-      alt: "AI technology demonstration",
-      title: "AI Technology Demo",
-      description: "Demonstrating latest AI solutions to potential clients",
-      uploadDate: "2024-01-03",
-      size: "2.2 MB",
-      dimensions: "1920x1080",
-    },
-    {
-      id: "7",
-      src: "/business-networking-event.png",
-      alt: "Business networking event",
-      title: "Business Networking Event",
-      description: "Networking with industry leaders at business summit",
-      uploadDate: "2024-01-01",
-      size: "1.9 MB",
-      dimensions: "1920x1080",
-    },
-    {
-      id: "8",
-      src: "/educational-workshop-session.jpg",
-      alt: "Educational workshop session",
-      title: "Educational Workshop",
-      description: "Teaching advanced AI concepts to professionals",
-      uploadDate: "2023-12-28",
-      size: "2.5 MB",
-      dimensions: "1920x1080",
-    },
-  ]
 
   if (loading) {
     return (
@@ -190,87 +108,284 @@ export function AdminGallery() {
     setDeleteConfirm({isOpen: true, count: selectedImages.length, type: 'bulk'})
   }
 
-  const confirmBulkDelete = () => {
-    setImages((prev) => prev.filter((img) => !selectedImages.includes(img.id)))
-    setSelectedImages([])
-    setDeleteConfirm({isOpen: false, type: 'bulk'})
-    toast({
-      title: "Success",
-      description: `Successfully deleted ${deleteConfirm.count} image(s)!`,
-      variant: "default"
-    })
+  const confirmBulkDelete = async () => {
+    try {
+      const { supabase } = await import("@/lib/supabase")
+      const imagesToDelete = images.filter(img => selectedImages.includes(img.id))
+      
+      // Delete from database
+      const { error: dbError } = await supabase
+        .from('gallery_images')
+        .delete()
+        .in('id', selectedImages)
+
+      if (dbError) {
+        console.error('Bulk database delete error:', dbError)
+        toast({
+          title: "Delete Error",
+          description: "Failed to delete images from database",
+          variant: "destructive"
+        })
+        return
+      }
+
+      // Delete from storage
+      const filePaths = imagesToDelete
+        .filter(img => img.src.includes('supabase'))
+        .map(img => {
+          const url = new URL(img.src)
+          const pathSegments = url.pathname.split('/')
+          return pathSegments.slice(-2).join('/') // get 'gallery/filename.ext'
+        })
+      
+      if (filePaths.length > 0) {
+        const { error: storageError } = await supabase.storage
+          .from('gallery-images')
+          .remove(filePaths)
+
+        if (storageError) {
+          console.error('Bulk storage delete error:', storageError)
+          // Don't show error to user as the database records are already deleted
+        }
+      }
+
+      setImages((prev) => prev.filter((img) => !selectedImages.includes(img.id)))
+      setSelectedImages([])
+      setDeleteConfirm({isOpen: false, type: 'bulk'})
+      toast({
+        title: "Success",
+        description: `Successfully deleted ${deleteConfirm.count} image(s)!`,
+        variant: "default"
+      })
+    } catch (error) {
+      console.error('Bulk delete error:', error)
+      toast({
+        title: "Delete Error",
+        description: "Failed to delete images",
+        variant: "destructive"
+      })
+    }
   }
 
   const handleDeleteImage = (imageId: string) => {
     setDeleteConfirm({isOpen: true, imageId, type: 'single'})
   }
 
-  const confirmDeleteImage = () => {
+  const confirmDeleteImage = async () => {
     const imageId = deleteConfirm.imageId
     if (!imageId) return
 
-    setImages((prev) => prev.filter((img) => img.id !== imageId))
-    setSelectedImages((prev) => prev.filter((id) => id !== imageId))
-    setDeleteConfirm({isOpen: false, type: 'single'})
-    toast({
-      title: "Success",
-      description: "Image deleted successfully!",
-      variant: "default"
-    })
+    try {
+      const { supabase } = await import("@/lib/supabase")
+      const imageToDelete = images.find(img => img.id === imageId)
+      
+      if (imageToDelete) {
+        // Delete from database
+        const { error: dbError } = await supabase
+          .from('gallery_images')
+          .delete()
+          .eq('id', imageId)
+
+        if (dbError) {
+          console.error('Database delete error:', dbError)
+          toast({
+            title: "Delete Error",
+            description: "Failed to delete image from database",
+            variant: "destructive"
+          })
+          return
+        }
+
+        // Extract file path from URL for storage deletion
+        if (imageToDelete.src.includes('supabase')) {
+          const url = new URL(imageToDelete.src)
+          const pathSegments = url.pathname.split('/')
+          const filePath = pathSegments.slice(-2).join('/') // get 'gallery/filename.ext'
+          
+          // Delete from storage
+          const { error: storageError } = await supabase.storage
+            .from('gallery-images')
+            .remove([filePath])
+
+          if (storageError) {
+            console.error('Storage delete error:', storageError)
+            // Don't show error to user as the database record is already deleted
+          }
+        }
+      }
+
+      setImages((prev) => prev.filter((img) => img.id !== imageId))
+      setSelectedImages((prev) => prev.filter((id) => id !== imageId))
+      setDeleteConfirm({isOpen: false, type: 'single'})
+      toast({
+        title: "Success",
+        description: "Image deleted successfully!",
+        variant: "default"
+      })
+    } catch (error) {
+      console.error('Delete error:', error)
+      toast({
+        title: "Delete Error",
+        description: "Failed to delete image",
+        variant: "destructive"
+      })
+    }
   }
 
   const handleEditImage = (image: GalleryImage) => {
     setEditingImage({ ...image })
   }
 
-  const handleSaveEdit = () => {
-    if (editingImage) {
+  const handleSaveEdit = async () => {
+    if (!editingImage) return
+
+    try {
+      const { supabase } = await import("@/lib/supabase")
+      
+      const { error } = await supabase
+        .from('gallery_images')
+        .update({
+          title: editingImage.title,
+          description: editingImage.description
+        })
+        .eq('id', editingImage.id)
+
+      if (error) {
+        console.error('Update error:', error)
+        toast({
+          title: "Update Error",
+          description: "Failed to update image",
+          variant: "destructive"
+        })
+        return
+      }
+
       setImages((prev) => prev.map((img) => (img.id === editingImage.id ? editingImage : img)))
       setEditingImage(null)
+      toast({
+        title: "Success",
+        description: "Image updated successfully!",
+        variant: "default"
+      })
+    } catch (error) {
+      console.error('Update error:', error)
+      toast({
+        title: "Update Error",
+        description: "Failed to update image",
+        variant: "destructive"
+      })
     }
   }
 
-  const handleFileUpload = (files: FileList | null) => {
+  const handleFileUpload = async (files: FileList | null) => {
     if (!files) return
 
     setIsUploading(true)
     setUploadProgress(0)
 
-    Array.from(files).forEach((file, index) => {
-      if (file.type.startsWith("image/")) {
-        const reader = new FileReader()
-        reader.onload = (e) => {
-          const newImage: GalleryImage = {
-            id: Date.now().toString() + index,
-            src: e.target?.result as string,
-            alt: file.name.replace(/\.[^/.]+$/, ""),
-            title: file.name
-              .replace(/\.[^/.]+$/, "")
-              .replace(/-/g, " ")
-              .replace(/\b\w/g, (l) => l.toUpperCase()),
-            description: "",
-            uploadDate: new Date().toISOString().split("T")[0],
-            size: (file.size / (1024 * 1024)).toFixed(1) + " MB",
-            dimensions: "1920x1080", // Would be determined from actual image
-          }
+    try {
+      const { supabase } = await import("@/lib/supabase")
+      const uploadPromises = Array.from(files).map(async (file, index) => {
+        if (!file.type.startsWith("image/")) return null
 
-          setImages((prev) => [newImage, ...prev])
+        // Generate unique file name
+        const fileExt = file.name.split('.').pop()
+        const fileName = `${Date.now()}_${index}.${fileExt}`
+        const filePath = `gallery/${fileName}`
 
-          // Simulate upload progress
-          const progress = ((index + 1) / files.length) * 100
-          setUploadProgress(progress)
+        // Upload file to Supabase Storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('gallery-images')
+          .upload(filePath, file, {
+            cacheControl: '3600',
+            upsert: false
+          })
 
-          if (index === files.length - 1) {
-            setTimeout(() => {
-              setIsUploading(false)
-              setShowUploadModal(false)
-              setUploadProgress(0)
-            }, 500)
-          }
+        if (uploadError) {
+          console.error('Upload error:', uploadError)
+          toast({
+            title: "Upload Error",
+            description: `Failed to upload ${file.name}`,
+            variant: "destructive"
+          })
+          return null
         }
-        reader.readAsDataURL(file)
+
+        // Get public URL
+        const { data: { publicUrl } } = supabase.storage
+          .from('gallery-images')
+          .getPublicUrl(filePath)
+
+        // Create image metadata
+        const imageTitle = file.name
+          .replace(/\.[^/.]+$/, "")
+          .replace(/-/g, " ")
+          .replace(/\b\w/g, (l) => l.toUpperCase())
+
+        // Save to database with order based on current count
+        const currentMaxOrder = Math.max(...images.map(img => 
+          parseInt(img.id) || 0
+        ), 0)
+        
+        const { data: dbData, error: dbError } = await supabase
+          .from('gallery_images')
+          .insert({
+            url: publicUrl,
+            title: imageTitle,
+            description: '',
+            order: currentMaxOrder + index + 1
+          })
+          .select()
+          .single()
+
+        if (dbError) {
+          console.error('Database error:', dbError)
+          // Clean up uploaded file if database insert fails
+          await supabase.storage
+            .from('gallery-images')
+            .remove([filePath])
+          return null
+        }
+
+        return {
+          id: dbData.id,
+          src: publicUrl,
+          alt: imageTitle,
+          title: imageTitle,
+          description: '',
+          uploadDate: new Date().toISOString().split("T")[0],
+          size: (file.size / (1024 * 1024)).toFixed(1) + " MB",
+          dimensions: "1920x1080"
+        }
+      })
+
+      const uploadedImages = await Promise.all(uploadPromises)
+      const successfulUploads = uploadedImages.filter(img => img !== null)
+
+      if (successfulUploads.length > 0) {
+        setImages((prev) => [...successfulUploads, ...prev])
+        toast({
+          title: "Success",
+          description: `Successfully uploaded ${successfulUploads.length} image(s)!`,
+          variant: "default"
+        })
       }
-    })
+
+      setUploadProgress(100)
+    } catch (error) {
+      console.error('Upload error:', error)
+      toast({
+        title: "Upload Error",
+        description: "Failed to upload images",
+        variant: "destructive"
+      })
+    } finally {
+      setTimeout(() => {
+        setIsUploading(false)
+        setShowUploadModal(false)
+        setUploadProgress(0)
+      }, 1000)
+    }
   }
 
   const handleDragStart = (imageId: string) => {
@@ -281,7 +396,7 @@ export function AdminGallery() {
     e.preventDefault()
   }
 
-  const handleDrop = (e: React.DragEvent, targetImageId: string) => {
+  const handleDrop = async (e: React.DragEvent, targetImageId: string) => {
     e.preventDefault()
     if (draggedImage && draggedImage !== targetImageId) {
       const draggedIndex = images.findIndex((img) => img.id === draggedImage)
@@ -292,6 +407,24 @@ export function AdminGallery() {
       newImages.splice(targetIndex, 0, draggedItem)
 
       setImages(newImages)
+
+      // Update order in database
+      try {
+        const { supabase } = await import("@/lib/supabase")
+        
+        const updatePromises = newImages.map((img, index) => 
+          supabase
+            .from('gallery_images')
+            .update({ order: index })
+            .eq('id', img.id)
+        )
+
+        await Promise.all(updatePromises)
+      } catch (error) {
+        console.error('Error updating order:', error)
+        // Revert changes if database update fails
+        fetchGalleryImages()
+      }
     }
     setDraggedImage(null)
   }
@@ -389,7 +522,7 @@ export function AdminGallery() {
                 onClick={() => handleImageSelect(image.id)}
               >
                 <img
-                  src={image.src || "/placeholder.svg"}
+                  src={image.src}
                   alt={image.alt}
                   className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
                 />
@@ -531,7 +664,7 @@ export function AdminGallery() {
             <CardContent className="space-y-4">
               <div className="aspect-square rounded-lg overflow-hidden bg-muted">
                 <img
-                  src={editingImage.src || "/placeholder.svg"}
+                  src={editingImage.src}
                   alt={editingImage.alt}
                   className="w-full h-full object-cover"
                 />

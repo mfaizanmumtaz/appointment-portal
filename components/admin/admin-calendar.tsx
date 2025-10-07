@@ -14,7 +14,8 @@ import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { sendCancellationEmail } from "@/lib/meeting-utils"
 import { fetchEventInvitations } from "@/lib/event-utils"
-import type { EventInvitation } from "@/lib/types/database"
+import { fetchInterviewRequests, sendInterviewCancellationEmail } from "@/lib/interview-utils"
+import type { EventInvitation, InterviewRequest } from "@/lib/types/database"
 
 
 interface Appointment {
@@ -36,9 +37,11 @@ export function AdminCalendar() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [events, setEvents] = useState<EventInvitation[]>([])
+  const [interviews, setInterviews] = useState<InterviewRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
   const [cancellationReason, setCancellationReason] = useState("")
+  const [openDialogId, setOpenDialogId] = useState<string | null>(null)
   const { toast } = useToast()
 
   const {
@@ -55,6 +58,7 @@ export function AdminCalendar() {
     executeWithOfflineCheck(async () => {
       await fetchAppointments()
       await fetchConfirmedEvents()
+      await fetchInterviews()
     })
   }, [])
 
@@ -63,6 +67,7 @@ export function AdminCalendar() {
     await executeWithOfflineCheck(async () => {
       await fetchAppointments()
       await fetchConfirmedEvents()
+      await fetchInterviews()
     })
     setIsRefreshing(false)
   }
@@ -95,6 +100,15 @@ export function AdminCalendar() {
       // Only show confirmed events
       const confirmedEvents = result.data.filter(event => event.status === 'confirmed')
       setEvents(confirmedEvents)
+    }
+  }
+
+  const fetchInterviews = async () => {
+    const result = await fetchInterviewRequests()
+    if (result.success) {
+      // Only show approved interviews
+      const approvedInterviews = result.data.filter(interview => interview.status === 'approved')
+      setInterviews(approvedInterviews)
     }
   }
 
@@ -209,6 +223,90 @@ export function AdminCalendar() {
     }
   }
 
+  const handleCancelInterview = async (interviewId: string) => {
+    if (!cancellationReason.trim()) {
+      toast({
+        title: "Error",
+        description: "Please provide a reason for cancellation",
+        variant: "destructive"
+      })
+      return
+    }
+
+    setCancellingId(interviewId)
+
+    try {
+      const { supabase } = await import("@/lib/supabase")
+      
+      console.log('📝 Starting interview cancellation for ID:', interviewId)
+      
+      // Get interview details for email
+      const { data: interview, error: fetchError } = await (supabase as any)
+        .from('interview_requests')
+        .select('*')
+        .eq('id', interviewId)
+        .single()
+
+      if (fetchError) {
+        console.error('❌ Error fetching interview:', fetchError)
+        throw new Error(`Failed to fetch interview: ${fetchError.message}`)
+      }
+
+      if (!interview) {
+        console.error('❌ Interview not found for ID:', interviewId)
+        throw new Error('Interview not found')
+      }
+
+      console.log('✅ Interview found:', interview.podcaster_name, interview.status)
+
+      // Update interview status to cancelled
+      const { error: updateError } = await (supabase as any)
+        .from('interview_requests')
+        .update({ 
+          status: 'cancelled',
+          admin_notes: cancellationReason,
+          responded_at: new Date().toISOString()
+        })
+        .eq('id', interviewId)
+
+      if (updateError) {
+        console.error('❌ Error updating interview status:', updateError)
+        throw new Error(`Failed to update interview: ${updateError.message}`)
+      }
+
+      console.log('✅ Interview status updated to cancelled')
+
+      // Send cancellation email to podcaster
+      const emailResult = await sendInterviewCancellationEmail(interview, cancellationReason)
+      if (!emailResult.success) {
+        console.warn('Failed to send cancellation email:', emailResult.error)
+        // Don't fail the whole operation, just log the warning
+      }
+
+      // Refresh interviews
+      await fetchInterviews()
+
+      toast({
+        title: "Success",
+        description: "Interview cancelled and notification sent successfully"
+      })
+
+      // Reset state and close dialog
+      setCancellingId(null)
+      setCancellationReason("")
+      setOpenDialogId(null)
+
+    } catch (error) {
+      console.error('Error:', error)
+      setCancellingId(null) // Reset loading state on error
+      toast({
+        title: "Error",
+        description: "Failed to cancel interview",
+        variant: "destructive"
+      })
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -239,7 +337,7 @@ export function AdminCalendar() {
       <ErrorBanner error={error} />
 
       <Tabs defaultValue="paid" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="paid" className="flex items-center gap-2 cursor-pointer">
             <DollarSign className="w-4 h-4" />
             Paid Sessions ({getAppointmentsByType("paid").length})
@@ -251,6 +349,10 @@ export function AdminCalendar() {
           <TabsTrigger value="events" className="flex items-center gap-2 cursor-pointer">
             <CalendarDays className="w-4 h-4" />
             Events ({events.filter(e => e.status === 'confirmed').length})
+          </TabsTrigger>
+          <TabsTrigger value="interviews" className="flex items-center gap-2 cursor-pointer">
+            <Video className="w-4 h-4" />
+            Interviews ({interviews.length})
           </TabsTrigger>
         </TabsList>
 
@@ -528,6 +630,154 @@ export function AdminCalendar() {
                           </Button>
                         </div>
                       )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="interviews" className="space-y-4">
+          <Card className="card-calm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Video className="w-5 h-5" />
+                Interview / Podcast Bookings
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {interviews.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Video className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">No Approved Interviews</h3>
+                    <p className="text-muted-foreground">Approved interview requests will appear here</p>
+                  </div>
+                ) : (
+                  interviews.map((interview) => (
+                    <div
+                      key={interview.id}
+                      className="p-4 border rounded-lg hover:bg-muted/30 transition-colors"
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <h4 className="font-semibold text-lg">{interview.podcaster_name}</h4>
+                          <p className="text-muted-foreground">Email: {interview.email}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge className="bg-green-100 text-green-800">
+                            {interview.status}
+                          </Badge>
+                          <Dialog 
+                            open={openDialogId === interview.id} 
+                            onOpenChange={(open) => {
+                              if (open) {
+                                setOpenDialogId(interview.id)
+                                setCancellationReason("")
+                                setCancellingId(null)
+                              } else {
+                                setOpenDialogId(null)
+                                setCancellationReason("")
+                                setCancellingId(null)
+                              }
+                            }}
+                          >
+                            <DialogTrigger asChild>
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                disabled={cancellingId === interview.id}
+                                className="cursor-pointer"
+                              >
+                                <XCircle className="w-4 h-4 mr-1" />
+                                {cancellingId === interview.id ? "Cancelling..." : "Cancel"}
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Cancel Interview</DialogTitle>
+                              </DialogHeader>
+                              <div className="space-y-4">
+                                <div>
+                                  <p className="text-sm text-muted-foreground mb-4">
+                                    Are you sure you want to cancel the interview with <strong>{interview.podcaster_name}</strong>?
+                                  </p>
+                                </div>
+                                <div className="space-y-2">
+                                  <Label htmlFor={`reason-${interview.id}`}>Cancellation Reason *</Label>
+                                  <Textarea
+                                    id={`reason-${interview.id}`}
+                                    placeholder="Please provide a reason for cancelling this interview..."
+                                    value={cancellationReason}
+                                    onChange={(e) => setCancellationReason(e.target.value)}
+                                    disabled={cancellingId === interview.id}
+                                    className="min-h-[80px]"
+                                  />
+                                </div>
+                                <div className="flex gap-2 justify-end">
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                      setOpenDialogId(null)
+                                      setCancellationReason("")
+                                      setCancellingId(null)
+                                    }}
+                                    disabled={cancellingId === interview.id}
+                                  >
+                                    Cancel
+                                  </Button>
+                                  <Button
+                                    variant="destructive"
+                                    onClick={() => handleCancelInterview(interview.id)}
+                                    disabled={cancellingId === interview.id || !cancellationReason.trim()}
+                                  >
+                                    {cancellingId === interview.id ? (
+                                      <>
+                                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                                        Cancelling...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <XCircle className="w-4 h-4 mr-2" />
+                                        Cancel Interview
+                                      </>
+                                    )}
+                                  </Button>
+                                </div>
+                              </div>
+                            </DialogContent>
+                          </Dialog>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-muted-foreground">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="w-4 h-4" />
+                          {interview.preferred_date ? new Date(interview.preferred_date).toLocaleDateString() : 'No date specified'}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <User className="w-4 h-4" />
+                          {interview.phone}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Video className="w-4 h-4" />
+                          LinkedIn
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <DollarSign className="w-4 h-4" />
+                          YouTube
+                        </div>
+                      </div>
+                      <div className="mt-3 p-3 bg-muted/30 rounded-lg">
+                        <p className="text-sm font-medium mb-1">Agenda:</p>
+                        <p className="text-sm">{interview.agenda}</p>
+                        {interview.notes && (
+                          <div className="mt-2">
+                            <p className="text-sm font-medium mb-1">Additional Notes:</p>
+                            <p className="text-sm text-muted-foreground">{interview.notes}</p>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ))
                 )}

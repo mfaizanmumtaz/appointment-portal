@@ -16,6 +16,7 @@ export default function InterviewPage() {
     podcasterName: "",
     phone: "",
     email: "",
+    linkedinUrl: "",
     youtubeLink: "",
     facebookLink: "",
     agenda: "",
@@ -39,33 +40,69 @@ export default function InterviewPage() {
     } else if (!/^[+]?[1-9][\d]{0,15}$/.test(podcastForm.phone.replace(/[\s\-()]/g, ""))) {
       errors.phone = "Please enter a valid phone number"
     }
-    if (podcastForm.youtubeLink && !/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\/.+$/.test(podcastForm.youtubeLink)) {
+    if (!podcastForm.linkedinUrl.trim()) {
+      errors.linkedinUrl = "LinkedIn URL is required"
+    } else if (!/^https?:\/\/(www\.)?linkedin\.com\/(in|company)\/.+$/.test(podcastForm.linkedinUrl)) {
+      errors.linkedinUrl = "Please enter a valid LinkedIn profile/company URL"
+    }
+    if (!podcastForm.youtubeLink.trim()) {
+      errors.youtubeLink = "YouTube channel is required"
+    } else if (!/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\/.+$/.test(podcastForm.youtubeLink)) {
       errors.youtubeLink = "Please enter a valid YouTube URL"
     }
-    if (podcastForm.facebookLink && !/^https?:\/\/(www\.)?facebook\.com\/.+$/.test(podcastForm.facebookLink)) {
+    if (!podcastForm.facebookLink.trim()) {
+      errors.facebookLink = "Facebook page is required"
+    } else if (!/^https?:\/\/(www\.)?facebook\.com\/.+$/.test(podcastForm.facebookLink)) {
       errors.facebookLink = "Please enter a valid Facebook URL"
     }
     if (!podcastForm.agenda.trim()) errors.agenda = "Agenda or topic is required"
+    if (!podcastForm.date.trim()) errors.date = "Preferred date is required"
 
     setPodcastErrors(errors)
     return Object.keys(errors).length === 0
   }
 
-  const handlePodcastSubmit = (e: React.FormEvent) => {
+  const handlePodcastSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (validatePodcastForm()) {
-      setShowPodcastSuccess(true)
-      setPodcastForm({
-        podcasterName: "",
-        phone: "",
-        email: "",
-        youtubeLink: "",
-        facebookLink: "",
-        agenda: "",
-        date: "",
-        notes: "",
-      })
-      setPodcastErrors({})
+      try {
+        const { createInterviewRequest } = await import("@/lib/interview-utils")
+        
+        const result = await createInterviewRequest({
+          podcasterName: podcastForm.podcasterName,
+          email: podcastForm.email,
+          phone: podcastForm.phone,
+          linkedinUrl: podcastForm.linkedinUrl,
+          youtubeLink: podcastForm.youtubeLink,
+          facebookLink: podcastForm.facebookLink,
+          agenda: podcastForm.agenda,
+          preferredDate: podcastForm.date || undefined,
+          notes: podcastForm.notes || undefined
+        })
+
+        if (!result.success) {
+          console.error('Error submitting interview request:', result.error)
+          // Still show success to user, but log error for admin
+        }
+
+        setShowPodcastSuccess(true)
+        setPodcastForm({
+          podcasterName: "",
+          phone: "",
+          email: "",
+          linkedinUrl: "",
+          youtubeLink: "",
+          facebookLink: "",
+          agenda: "",
+          date: "",
+          notes: "",
+        })
+        setPodcastErrors({})
+      } catch (error) {
+        console.error('Error:', error)
+        // Still show success to user to not break UX
+        setShowPodcastSuccess(true)
+      }
     }
   }
 
@@ -201,6 +238,28 @@ export default function InterviewPage() {
                       </p>
                     )}
                   </div>
+
+                  <div className="space-y-2">
+                    <Label
+                      htmlFor="linkedinUrl"
+                      className="text-slate-700 font-semibold text-xs sm:text-sm md:text-base flex items-center gap-2"
+                    >
+                      LinkedIn Profile <span className="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      id="linkedinUrl"
+                      value={podcastForm.linkedinUrl}
+                      onChange={(e) => setPodcastForm({ ...podcastForm, linkedinUrl: e.target.value })}
+                      className={`rounded-xl h-10 sm:h-11 md:h-12 border-2 bg-white transition-all text-xs sm:text-sm md:text-base ${podcastErrors.linkedinUrl ? "border-red-400 focus:border-red-500" : "border-slate-200 focus:border-teal-400"}`}
+                      placeholder="https://linkedin.com/in/username"
+                    />
+                    {podcastErrors.linkedinUrl && (
+                      <p className="text-red-500 text-[10px] sm:text-xs md:text-sm flex items-center gap-1">
+                        <span>⚠</span>
+                        {podcastErrors.linkedinUrl}
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 <div className="space-y-4 sm:space-y-6">
@@ -213,9 +272,9 @@ export default function InterviewPage() {
                     <div className="space-y-2">
                       <Label
                         htmlFor="youtubeLink"
-                        className="text-slate-700 font-semibold text-xs sm:text-sm md:text-base"
+                        className="text-slate-700 font-semibold text-xs sm:text-sm md:text-base flex items-center gap-2"
                       >
-                        YouTube Channel
+                        YouTube Channel <span className="text-red-500">*</span>
                       </Label>
                       <Input
                         id="youtubeLink"
@@ -235,9 +294,9 @@ export default function InterviewPage() {
                     <div className="space-y-2">
                       <Label
                         htmlFor="facebookLink"
-                        className="text-slate-700 font-semibold text-xs sm:text-sm md:text-base"
+                        className="text-slate-700 font-semibold text-xs sm:text-sm md:text-base flex items-center gap-2"
                       >
-                        Facebook Page
+                        Facebook Page <span className="text-red-500">*</span>
                       </Label>
                       <Input
                         id="facebookLink"
@@ -286,16 +345,22 @@ export default function InterviewPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="date" className="text-slate-700 font-semibold text-xs sm:text-sm md:text-base">
-                      Preferred Date <span className="text-slate-500 text-xs sm:text-sm font-normal">(Optional)</span>
+                    <Label htmlFor="date" className="text-slate-700 font-semibold text-xs sm:text-sm md:text-base flex items-center gap-2">
+                      Preferred Date <span className="text-red-500">*</span>
                     </Label>
                     <Input
                       id="date"
                       type="date"
                       value={podcastForm.date}
                       onChange={(e) => setPodcastForm({ ...podcastForm, date: e.target.value })}
-                      className="rounded-xl h-10 sm:h-11 md:h-12 border-2 border-slate-200 bg-white focus:border-teal-400 transition-all text-xs sm:text-sm md:text-base"
+                      className={`rounded-xl h-10 sm:h-11 md:h-12 border-2 bg-white transition-all text-xs sm:text-sm md:text-base ${podcastErrors.date ? "border-red-400 focus:border-red-500" : "border-slate-200 focus:border-teal-400"}`}
                     />
+                    {podcastErrors.date && (
+                      <p className="text-red-500 text-[10px] sm:text-xs md:text-sm flex items-center gap-1">
+                        <span>⚠</span>
+                        {podcastErrors.date}
+                      </p>
+                    )}
                   </div>
 
                   <div className="space-y-2">

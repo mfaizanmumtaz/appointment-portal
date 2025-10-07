@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Footer } from "@/components/ui/footer"
 import { Input } from "@/components/ui/input"
@@ -10,10 +10,19 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { MessageSquare, Users, Briefcase, Play, ArrowRight, Calendar, Mic } from "lucide-react"
 import Link from "next/link"
+import Image from "next/image"
 import { FloatingChatWidget } from "@/components/chat/floating-chat-widget"
 import { createInstantMessage } from "@/lib/message-utils"
 
+interface GalleryImage {
+  id: string
+  url: string
+  title: string
+  description?: string
+}
+
 export default function HomePage() {
+  const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([])
   const [showQuickMessageSuccess, setShowQuickMessageSuccess] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -25,6 +34,31 @@ export default function HomePage() {
   })
 
   const [quickMessageErrors, setQuickMessageErrors] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    fetchGalleryImages()
+  }, [])
+
+  const fetchGalleryImages = async () => {
+    try {
+      const { supabase } = await import("@/lib/supabase")
+
+      const { data, error } = await supabase
+        .from('gallery_images')
+        .select('*')
+        .order('order', { ascending: true })
+        .limit(8) // Show 8 images as in the original design
+
+      if (error) {
+        console.error('Error fetching gallery images:', error)
+        return
+      }
+
+      setGalleryImages(data || [])
+    } catch (err) {
+      console.error('Error:', err)
+    }
+  }
 
   const validateQuickMessageForm = () => {
     const errors: Record<string, string> = {}
@@ -205,8 +239,9 @@ export default function HomePage() {
 
                     <Button
                       type="submit"
-                      className="w-full bg-blue-600 hover:bg-blue-700 text-white h-9 sm:h-10 md:h-11 text-xs sm:text-sm md:text-base"
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white h-9 sm:h-10 md:h-11 text-xs sm:text-sm md:text-base cursor-pointer"
                       disabled={isSubmitting}
+                      style={{ cursor: isSubmitting ? 'not-allowed' : 'pointer' }}
                     >
                       {isSubmitting ? "Sending..." : "Submit Message"}
                     </Button>
@@ -216,7 +251,26 @@ export default function HomePage() {
 
               <div className="flex flex-col gap-3 sm:gap-4 md:gap-5 lg:gap-6 justify-center items-stretch max-w-5xl mx-auto px-2">
                 <Button asChild className="btn-hero btn-secondary w-full h-16 sm:h-18 md:h-20">
-                  <Link href="/interview" className="flex items-center justify-between px-2">
+                  <Link 
+                    href="/interview" 
+                    className="flex items-center justify-between px-2"
+                    style={{
+                      background: 'linear-gradient(to right, #14b8a6, #06b6d4)',
+                      color: 'white',
+                      borderRadius: '0.75rem',
+                      boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)',
+                      border: 'none',
+                      transition: 'all 0.3s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'linear-gradient(to right, #0d9488, #0891b2)';
+                      e.currentTarget.style.boxShadow = '0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'linear-gradient(to right, #14b8a6, #06b6d4)';
+                      e.currentTarget.style.boxShadow = '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)';
+                    }}
+                  >
                     <div className="flex items-center gap-2 sm:gap-3 md:gap-4">
                       <Mic className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 flex-shrink-0" />
                       <div className="text-left">
@@ -230,7 +284,26 @@ export default function HomePage() {
                   </Link>
                 </Button>
                 <Button asChild className="btn-hero btn-secondary w-full h-16 sm:h-18 md:h-20">
-                  <Link href="/event" className="flex items-center justify-between px-2">
+                  <Link 
+                    href="/event" 
+                    className="flex items-center justify-between px-2"
+                    style={{
+                      background: 'linear-gradient(to right, #14b8a6, #06b6d4)',
+                      color: 'white',
+                      borderRadius: '0.75rem',
+                      boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)',
+                      border: 'none',
+                      transition: 'all 0.3s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'linear-gradient(to right, #0d9488, #0891b2)';
+                      e.currentTarget.style.boxShadow = '0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'linear-gradient(to right, #14b8a6, #06b6d4)';
+                      e.currentTarget.style.boxShadow = '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)';
+                    }}
+                  >
                     <div className="flex items-center gap-2 sm:gap-3 md:gap-4">
                       <Calendar className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 flex-shrink-0" />
                       <div className="text-left">
@@ -242,7 +315,26 @@ export default function HomePage() {
                   </Link>
                 </Button>
                 <Button asChild className="btn-hero btn-secondary w-full h-16 sm:h-18 md:h-20">
-                  <Link href="/business" className="flex items-center justify-between px-2">
+                  <Link 
+                    href="/business" 
+                    className="flex items-center justify-between px-2"
+                    style={{
+                      background: 'linear-gradient(to right, #14b8a6, #06b6d4)',
+                      color: 'white',
+                      borderRadius: '0.75rem',
+                      boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)',
+                      border: 'none',
+                      transition: 'all 0.3s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'linear-gradient(to right, #0d9488, #0891b2)';
+                      e.currentTarget.style.boxShadow = '0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'linear-gradient(to right, #14b8a6, #06b6d4)';
+                      e.currentTarget.style.boxShadow = '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)';
+                    }}
+                  >
                     <div className="flex items-center gap-2 sm:gap-3 md:gap-4">
                       <Briefcase className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 flex-shrink-0" />
                       <div className="text-left">
@@ -256,7 +348,26 @@ export default function HomePage() {
                   </Link>
                 </Button>
                 <Button asChild className="btn-hero btn-secondary w-full h-16 sm:h-18 md:h-20">
-                  <Link href="/student" className="flex items-center justify-between px-2">
+                  <Link 
+                    href="/student" 
+                    className="flex items-center justify-between px-2"
+                    style={{
+                      background: 'linear-gradient(to right, #14b8a6, #06b6d4)',
+                      color: 'white',
+                      borderRadius: '0.75rem',
+                      boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)',
+                      border: 'none',
+                      transition: 'all 0.3s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'linear-gradient(to right, #0d9488, #0891b2)';
+                      e.currentTarget.style.boxShadow = '0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'linear-gradient(to right, #14b8a6, #06b6d4)';
+                      e.currentTarget.style.boxShadow = '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)';
+                    }}
+                  >
                     <div className="flex items-center gap-2 sm:gap-3 md:gap-4">
                       <Users className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 flex-shrink-0" />
                       <div className="text-left">
@@ -324,62 +435,25 @@ export default function HomePage() {
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-5 lg:gap-6">
-              <div className="aspect-square rounded-xl sm:rounded-2xl overflow-hidden shadow-lg hover:shadow-xl transition-shadow">
-                <img
-                  src="/business-workshop-presentation.jpg"
-                  alt="Business workshop presentation"
-                  className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
-                />
-              </div>
-              <div className="aspect-square rounded-xl sm:rounded-2xl overflow-hidden shadow-lg hover:shadow-xl transition-shadow">
-                <img
-                  src="/ai-consultation-meeting.jpg"
-                  alt="AI consultation meeting"
-                  className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
-                />
-              </div>
-              <div className="aspect-square rounded-xl sm:rounded-2xl overflow-hidden shadow-lg hover:shadow-xl transition-shadow">
-                <img
-                  src="/speaking-at-tech-conference.jpg"
-                  alt="Speaking at tech conference"
-                  className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
-                />
-              </div>
-              <div className="aspect-square rounded-xl sm:rounded-2xl overflow-hidden shadow-lg hover:shadow-xl transition-shadow">
-                <img
-                  src="/student-mentoring-session.jpg"
-                  alt="Student mentoring session"
-                  className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
-                />
-              </div>
-              <div className="aspect-square rounded-xl sm:rounded-2xl overflow-hidden shadow-lg hover:shadow-xl transition-shadow">
-                <img
-                  src="/team-strategy-meeting.jpg"
-                  alt="Team strategy meeting"
-                  className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
-                />
-              </div>
-              <div className="aspect-square rounded-xl sm:rounded-2xl overflow-hidden shadow-lg hover:shadow-xl transition-shadow">
-                <img
-                  src="/ai-technology-demonstration.jpg"
-                  alt="AI technology demonstration"
-                  className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
-                />
-              </div>
-              <div className="aspect-square rounded-xl sm:rounded-2xl overflow-hidden shadow-lg hover:shadow-xl transition-shadow">
-                <img
-                  src="/business-networking-event.png"
-                  alt="Business networking event"
-                  className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
-                />
-              </div>
-              <div className="aspect-square rounded-xl sm:rounded-2xl overflow-hidden shadow-lg hover:shadow-xl transition-shadow">
-                <img
-                  src="/educational-workshop-session.jpg"
-                  alt="Educational workshop session"
-                  className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
-                />
-              </div>
+              {galleryImages.length > 0 ? (
+                galleryImages.map((image) => (
+                  <div key={image.id} className="aspect-square rounded-xl sm:rounded-2xl overflow-hidden shadow-lg hover:shadow-xl transition-shadow group">
+                    <div className="relative w-full h-full">
+                      <Image
+                        src={image.url}
+                        alt={image.title || "Gallery image"}
+                        fill
+                        className="object-cover transition-transform duration-300 group-hover:scale-105"
+                        sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                      />
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="col-span-full text-center py-12">
+                  <p className="text-slate-500">No images in gallery</p>
+                </div>
+              )}
             </div>
           </div>
         </section>
